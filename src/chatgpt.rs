@@ -98,8 +98,11 @@ struct ChatUsage {
 }
 
 fn api_key() -> Result<String, std::env::VarError> {
-    use dotenv::dotenv;
-    dotenv().ok();
+    #[cfg(feature = "dotenv")]
+    {
+        use dotenv::dotenv;
+        dotenv().ok();
+    }
     std::env::var("OPENAI_API_KEY")
 }
 
