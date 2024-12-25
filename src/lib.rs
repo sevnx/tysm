@@ -31,5 +31,11 @@ mod tests {
         assert_eq!(name.last, "Washington");
 
         assert_eq!(CLIENT.lru.read().unwrap().len(), 1);
+
+        let usage = CLIENT.usage();
+        for _ in 0..5 {
+            let _name: Name = CLIENT.chat("Who was the first president?").await.unwrap();
+        }
+        let usage2 = CLIENT.usage();
     }
 }

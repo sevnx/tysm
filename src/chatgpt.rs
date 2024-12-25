@@ -12,6 +12,7 @@ pub struct ChatClient {
     pub url: String,
     pub model: String,
     pub lru: RwLock<LruCache<String, String>>,
+    pub usage: RwLock<ChatUsage>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -96,7 +97,6 @@ struct ChatResponse {
     #[expect(unused)]
     system_fingerprint: Option<String>,
     choices: Vec<ChatChoice>,
-    #[expect(unused)]
     usage: ChatUsage,
 }
 
@@ -111,14 +111,19 @@ struct ChatChoice {
     finish_reason: String,
 }
 
-#[derive(Deserialize, Debug)]
-struct ChatUsage {
-    #[expect(unused)]
-    prompt_tokens: u32,
-    #[expect(unused)]
-    completion_tokens: u32,
-    #[expect(unused)]
-    total_tokens: u32,
+#[derive(Deserialize, Debug, Default, Clone, Copy)]
+pub struct ChatUsage {
+    pub prompt_tokens: u32,
+    pub completion_tokens: u32,
+    pub total_tokens: u32,
+}
+
+impl std::ops::AddAssign for ChatUsage {
+    fn add_assign(&mut self, rhs: Self) {
+        self.prompt_tokens += rhs.prompt_tokens;
+        self.completion_tokens += rhs.completion_tokens;
+        self.total_tokens += rhs.total_tokens;
+    }
 }
 
 #[derive(Debug)]
@@ -162,6 +167,7 @@ impl ChatClient {
             url: "https://api.openai.com/v1/chat/completions".into(),
             model: model.into(),
             lru: RwLock::new(LruCache::new(NonZeroUsize::new(1024).unwrap())),
+            usage: RwLock::new(ChatUsage::default()),
         }
     }
 
@@ -230,11 +236,16 @@ impl ChatClient {
         };
 
         let chat_response = if let Some(cached_response) = self.chat_cached(&chat_request).await {
-            cached_response
+            let chat_response: ChatResponse = serde_json::from_str(&cached_response)?;
+            chat_response
         } else {
-            self.chat_uncached(&chat_request).await?
+            let chat_response = self.chat_uncached(&chat_request).await?;
+            let chat_response: ChatResponse = serde_json::from_str(&chat_response)?;
+            if let Ok(mut usage) = self.usage.write() {
+                *usage += chat_response.usage;
+            }
+            chat_response
         };
-        let chat_response: ChatResponse = serde_json::from_str(&chat_response)?;
         let chat_response = chat_response
             .choices
             .first()
@@ -278,6 +289,13 @@ impl ChatClient {
             .put(chat_request, response.clone());
 
         Ok(response)
+    }
+
+    /// Returns how many tokens have been used so far.
+    ///
+    /// Does not double-count tokens used in cached responses.
+    pub fn usage(&self) -> ChatUsage {
+        *self.usage.read().unwrap()
     }
 }
 

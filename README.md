@@ -1,25 +1,8 @@
 # tysm
 
-**OpenAI Chat Completions for lazy programmers.**
+**OpenAI Chat Completions for lazy people**
 
 A strongly-typed Rust client for OpenAI's ChatGPT API that enforces type-safe responses using [Structured Outputs](https://platform.openai.com/docs/guides/structured-outputs).
-
-## Features
-
-- Type-safe API responses
-- Concise interface
-- Automatic local caching of API responses
-
-## Setup
-
-1. Get an API key from [OpenAI](https://platform.openai.com/api-keys).
-2. Create a `.env` file, and make it look like this:
-
-   ```
-   OPENAI_API_KEY=<your api key here>
-   ```
-3. Add `.env` to your `.gitignore` so you don't accidentally commit it.
-4. Add the crate to your Rust project with `cargo add tysm`
 
 ## Usage
 
@@ -51,6 +34,24 @@ async fn get_president_name() {
     assert_eq!(name.last, "Washington");
 }
 ```
+
+## Features
+
+- Type-safe API responses
+- Concise interface
+- Automatic local caching of API responses
+
+## Setup
+
+1. Get an API key from [OpenAI](https://platform.openai.com/api-keys).
+2. Create a `.env` file, and make it look like this:
+
+   ```
+   OPENAI_API_KEY=<your api key here>
+   ```
+3. Add `.env` to your `.gitignore` so you don't accidentally commit it.
+4. Add the crate to your Rust project with `cargo add tysm`
+
 
 ### Automatic Caching
 
