@@ -23,9 +23,9 @@ mod tests {
     #[tokio::test]
     async fn it_works() {
         let client = ChatClient::from_env("gpt-4o").unwrap();
-        let result: Name = client.chat("Who was the first president?").await.unwrap();
+        let name: Name = client.chat("Who was the first president?").await.unwrap();
 
-        assert_eq!(result.first, "George");
-        assert_eq!(result.last, "Washington");
+        assert_eq!(name.first, "George");
+        assert_eq!(name.last, "Washington");
     }
 }

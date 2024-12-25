@@ -101,8 +101,8 @@ fn api_key() -> Result<String, std::env::VarError> {
 
 #[derive(Error, Debug)]
 pub enum ChatError {
-    #[error("Network error: {0}")]
-    NetworkError(#[from] reqwest::Error),
+    #[error("Request error: {0}")]
+    RequestError(#[from] reqwest::Error),
 
     #[error("JSON parsing error: {0}")]
     JsonError(#[from] serde_json::Error),
