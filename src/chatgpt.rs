@@ -6,6 +6,7 @@ use schemars::{schema::RootSchema, schema_for, JsonSchema};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use thiserror::Error;
 
+#[non_exhaustive]
 pub struct ChatClient {
     pub api_key: String,
     pub url: String,
@@ -26,7 +27,24 @@ pub enum Role {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct ChatMessage {
     pub role: Role,
-    pub content: String,
+    pub content: Vec<ChatMessageContent>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ChatMessageContent {
+    Text {
+        text: String,
+    },
+    ImageUrl {
+        #[serde(rename = "image_url")]
+        image: ImageUrl,
+    },
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ImageUrl {
+    url: String,
 }
 
 #[derive(Serialize)]
@@ -59,6 +77,12 @@ pub struct SchemaFormat {
     schema: RootSchema,
 }
 
+#[derive(Serialize, Deserialize, Debug)]
+pub struct ChatMessageResponse {
+    pub role: Role,
+    pub content: String,
+}
+
 #[derive(Deserialize, Debug)]
 struct ChatResponse {
     #[expect(unused)]
@@ -80,7 +104,7 @@ struct ChatResponse {
 struct ChatChoice {
     #[expect(unused)]
     index: u8,
-    message: ChatMessage,
+    message: ChatMessageResponse,
     #[expect(unused)]
     logprobs: Option<serde_json::Value>,
     #[expect(unused)]
@@ -97,13 +121,22 @@ struct ChatUsage {
     total_tokens: u32,
 }
 
-fn api_key() -> Result<String, std::env::VarError> {
+#[derive(Debug)]
+pub struct OpenAiApiKeyError(#[expect(unused)] std::env::VarError);
+impl std::fmt::Display for OpenAiApiKeyError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Unable to find the OpenAI API key in the environment. Please set the OPENAI_API_KEY environment variable. API keys can be found at <https://platform.openai.com/api-keys>.")
+    }
+}
+impl std::error::Error for OpenAiApiKeyError {}
+
+fn api_key() -> Result<String, OpenAiApiKeyError> {
     #[cfg(feature = "dotenv")]
     {
         use dotenv::dotenv;
         dotenv().ok();
     }
-    std::env::var("OPENAI_API_KEY")
+    std::env::var("OPENAI_API_KEY").map_err(OpenAiApiKeyError)
 }
 
 #[derive(Error, Debug)]
@@ -135,7 +168,7 @@ impl ChatClient {
     /// Create a new [`ChatClient`].
     /// This will use the `OPENAI_API_KEY` environment variable to set the API key.
     /// It will also look in the `.env` file for an `OPENAI_API_KEY` variable (using dotenv).
-    pub fn from_env(model: impl Into<String>) -> Result<Self, std::env::VarError> {
+    pub fn from_env(model: impl Into<String>) -> Result<Self, OpenAiApiKeyError> {
         Ok(Self::new(api_key()?, model))
     }
 
@@ -160,17 +193,20 @@ impl ChatClient {
         let messages = vec![
             ChatMessage {
                 role: Role::System,
-                content: system_prompt,
+                content: vec![ChatMessageContent::Text {
+                    text: system_prompt,
+                }],
             },
             ChatMessage {
                 role: Role::User,
-                content: prompt,
+                content: vec![ChatMessageContent::Text { text: prompt }],
             },
         ];
         self.chat_with_messages::<T>(messages).await
     }
 
     /// Send a sequence of chat messages to the API and deserialize the response into the given type.
+    /// This is useful for more advanced use cases like chatbots, multi-turn conversations, or when you need to use [Vision](https://platform.openai.com/docs/guides/vision).
     pub async fn chat_with_messages<T: DeserializeOwned + JsonSchema>(
         &self,
         messages: Vec<ChatMessage>,
@@ -207,15 +243,6 @@ impl ChatClient {
             .content
             .clone();
 
-        let chat_response = chat_response
-            .strip_prefix("```")
-            .unwrap_or(&chat_response)
-            .strip_prefix("json")
-            .unwrap_or(&chat_response)
-            .strip_suffix("```")
-            .unwrap_or(&chat_response)
-            .to_string();
-
         let chat_response: T = serde_json::from_str(&chat_response)?;
 
         Ok(chat_response)
@@ -230,8 +257,9 @@ impl ChatClient {
     }
 
     async fn chat_uncached(&self, chat_request: &ChatRequest) -> Result<String, ChatError> {
-        let client = Client::new();
-        let response = client
+        let reqwest_client = Client::new();
+
+        let response = reqwest_client
             .post(self.url.clone())
             .header("Authorization", format!("Bearer {}", self.api_key.clone()))
             .header("Content-Type", "application/json")
