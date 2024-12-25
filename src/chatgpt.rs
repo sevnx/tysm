@@ -1,5 +1,5 @@
-use anyhow::{anyhow, Context};
 use reqwest::Client;
+use thiserror::Error;
 use schemars::{schema::RootSchema, schema_for, JsonSchema};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
@@ -91,18 +91,33 @@ pub trait AiResponse: Serialize + DeserializeOwned + JsonSchema {
     const NAME: &'static str;
 }
 
-fn api_key() -> anyhow::Result<String> {
+fn api_key() -> Result<String> {
     use dotenv::dotenv;
     dotenv().ok();
-    std::env::var("OPENAI_API_KEY").map_err(|e| {
-        anyhow!("Expected OPENAI_API_KEY to be set ({e:?}), make sure it's set in dotenv!")
-    })
+    std::env::var("OPENAI_API_KEY")
 }
+
+#[derive(Error, Debug)]
+pub enum ChatGptError {
+    #[error("API key not found: {0}")]
+    ApiKeyNotFound(#[from] std::env::VarError),
+    
+    #[error("Network error: {0}")]
+    NetworkError(#[from] reqwest::Error),
+    
+    #[error("JSON parsing error: {0}")]
+    JsonError(#[from] serde_json::Error),
+    
+    #[error("No choices returned from API")]
+    NoChoices,
+}
+
+pub type Result<T> = std::result::Result<T, ChatGptError>;
 
 pub async fn call<T: AiResponse>(
     model: impl Into<String>,
     prompt: impl Into<String>,
-) -> anyhow::Result<T> {
+) -> Result<T> {
     call_with_system_prompt(model, prompt, "").await
 }
 
@@ -110,7 +125,7 @@ pub async fn call_with_system_prompt<T: AiResponse>(
     model: impl Into<String>,
     prompt: impl Into<String>,
     system_prompt: impl Into<String>,
-) -> anyhow::Result<T> {
+) -> Result<T> {
     let model = model.into();
     let prompt = prompt.into();
     let system_prompt = system_prompt.into();
@@ -131,7 +146,7 @@ pub async fn call_with_system_prompt<T: AiResponse>(
 pub async fn call_with_messages<T: AiResponse>(
     model: String,
     messages: Vec<ChatMessage>,
-) -> anyhow::Result<T> {
+) -> Result<T> {
     let api_key = api_key()?;
     let client = Client::new();
     let api_url = "https://api.openai.com/v1/chat/completions";
@@ -165,12 +180,11 @@ pub async fn call_with_messages<T: AiResponse>(
         .await?;
 
     let chat_response = response.text().await?;
-    let chat_response: ChatResponse =
-        serde_json::from_str(&chat_response).context(format!("deserializing {chat_response:?}"))?;
+    let chat_response: ChatResponse = serde_json::from_str(&chat_response)?;
     let chat_response = chat_response
         .choices
         .first()
-        .ok_or_else(|| anyhow!("Expected at least one choice, got {chat_response:?}"))?
+        .ok_or(ChatGptError::NoChoices)?
         .message
         .content
         .clone();
@@ -184,8 +198,7 @@ pub async fn call_with_messages<T: AiResponse>(
         .unwrap_or(&chat_response)
         .to_string();
 
-    let chat_response: T =
-        serde_json::from_str(&chat_response).context(format!("deserializing {chat_response:?}"))?;
+    let chat_response: T = serde_json::from_str(&chat_response)?;
 
     Ok(chat_response)
 }
