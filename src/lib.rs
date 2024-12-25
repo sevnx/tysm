@@ -8,7 +8,7 @@ pub fn add(left: u64, right: u64) -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use chatgpt::{AiResponse, ChatClient};
+    use chatgpt::ChatClient;
     use schemars::JsonSchema;
     use serde::{Deserialize, Serialize};
 
@@ -18,10 +18,6 @@ mod tests {
     struct Name {
         first: String,
         last: String,
-    }
-
-    impl AiResponse for Name {
-        const NAME: &'static str = "FullName";
     }
 
     #[tokio::test]

@@ -93,10 +93,6 @@ struct ChatUsage {
     total_tokens: u32,
 }
 
-pub trait AiResponse: Serialize + DeserializeOwned + JsonSchema {
-    const NAME: &'static str;
-}
-
 fn api_key() -> Result<String, std::env::VarError> {
     use dotenv::dotenv;
     dotenv().ok();
@@ -131,11 +127,14 @@ impl ChatClient {
         Ok(Self::new(api_key()?, model))
     }
 
-    pub async fn chat<T: AiResponse>(&self, prompt: impl Into<String>) -> Result<T, ChatError> {
+    pub async fn chat<T: DeserializeOwned + JsonSchema>(
+        &self,
+        prompt: impl Into<String>,
+    ) -> Result<T, ChatError> {
         self.chat_with_system_prompt(prompt, "").await
     }
 
-    pub async fn chat_with_system_prompt<T: AiResponse>(
+    pub async fn chat_with_system_prompt<T: DeserializeOwned + JsonSchema>(
         &self,
         prompt: impl Into<String>,
         system_prompt: impl Into<String>,
@@ -156,7 +155,7 @@ impl ChatClient {
         self.chat_with_messages::<T>(messages).await
     }
 
-    pub async fn chat_with_messages<T: AiResponse>(
+    pub async fn chat_with_messages<T: DeserializeOwned + JsonSchema>(
         &self,
         messages: Vec<ChatMessage>,
     ) -> Result<T, ChatError> {
@@ -170,7 +169,7 @@ impl ChatClient {
             response_format: ResponseFormat {
                 format_type: "json_schema".to_string(),
                 json_schema: JsonSchemaFormat {
-                    name: T::NAME.to_string(),
+                    name: tynm::type_name::<T>(),
                     strict: true,
                     schema: SchemaFormat {
                         additional_properties: false,
@@ -242,5 +241,5 @@ fn test_deser() {
     }
 }
 "#;
-    let chat_response: ChatResponse = serde_json::from_str(&s).unwrap();
+    let _chat_response: ChatResponse = serde_json::from_str(&s).unwrap();
 }
