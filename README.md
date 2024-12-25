@@ -101,6 +101,8 @@ This project is licensed under the MIT License.
 
 ## Backstory
 
+The name stands for "thank you so much", which is how I say when I ask ChatGPT a question and get a great answer!
+
 I like making ChatGPT-wrappers. Unfortunately the rust ecosystem for calling ChatGPT is more anemic than you would think, and it's not very complicated, so I always end up writing my own code for calling it. It's just an API endpoint after all. In my various git repos, I'd estimate I have about 5 implementations of this.
 
 I was in the middle of writing my 6th on a lazy christmas eve when I realized that I'm too lazy to keep doing that. So I decided to solve the problem for myself once and for all.
