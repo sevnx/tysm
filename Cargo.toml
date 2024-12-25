@@ -1,11 +1,11 @@
 [package]
-name = "typed-openai"
+name = "tysm"
 version = "0.1.0"
 edition = "2021"
 description = "A strongly-typed Rust client for OpenAI's ChatGPT API"
 license = "MIT"
-homepage = "https://github.com/yourusername/typed-openai"
-repository = "https://github.com/yourusername/typed-openai"
+homepage = "https://github.com/not-pizza/tysm"
+repository = "https://github.com/not-pizza/tysm"
 readme = "README.md"
 
 [dependencies]

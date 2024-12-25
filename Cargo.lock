@@ -1114,7 +1114,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "typed-openai"
+name = "tysm"
 version = "0.1.0"
 dependencies = [
  "anyhow",

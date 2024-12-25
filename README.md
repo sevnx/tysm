@@ -1,31 +1,31 @@
-# typed-openai
+# tysm
 
-A strongly-typed Rust client for OpenAI's ChatGPT API that enforces type-safe responses using JSON Schema.
+A strongly-typed Rust client for OpenAI's ChatGPT API that enforces type-safe responses using [Structured Outputs](https://platform.openai.com/docs/guides/structured-outputs).
 
 ## Features
 
-- Type-safe responses using serde and JSON Schema
+- Type-safe API responses
 - Easy to use ChatClient interface
 - Support for system prompts and custom messages
-- Automatic environment configuration
+- Automatically get an OpenAI API Key from the environment
 
 ## Usage
 
 ```rust
-use typed_openai::ChatClient;
+use tysm::ChatClient;
 
-#[derive(Serialize, Deserialize, JsonSchema)]
-struct Response {
-    message: String,
-    confidence: f32,
+#[derive(Deserialize, JsonSchema)]
+struct Name {
+    first: String,
+    last: String,
 }
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let client = ChatClient::from_env("gpt-4")?;
-    let response: Response = client.chat("Tell me a joke").await?;
-    println!("{}", response.message);
-    Ok(())
+async fn typed_name() {
+    let client = ChatClient::from_env("gpt-4o").unwrap();
+    let name: Name = client.chat("Who was the first president?").await.unwrap();
+
+    assert_eq!(name.first, "George");
+    assert_eq!(name.last, "Washington");
 }
 ```
 
