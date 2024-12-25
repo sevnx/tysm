@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use schemars::transform::{transform_subschemas, Transform};
 use schemars::Schema;
 use serde_json::Value;
@@ -22,9 +24,25 @@ impl Transform for OpenAiTransform {
                             .map(|k| Value::String(k.to_string()))
                             .collect::<Vec<_>>()
                     })
-                    .unwrap_or_default();
-                // add all the properties to the "required" array
-                obj.insert("required".to_string(), Value::Array(properties));
+                    .unwrap_or_default()
+                    .into_iter()
+                    .collect::<HashSet<_>>();
+                // get the "required" array
+                let required = obj
+                    .get("required")
+                    .and_then(|r| r.as_array())
+                    .cloned()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .collect::<HashSet<_>>();
+
+                if properties != required {
+                    // add all the properties to the "required" array
+                    obj.insert(
+                        "required".to_string(),
+                        Value::Array(properties.into_iter().collect()),
+                    );
+                }
             }
         }
         transform_subschemas(self, schema);
