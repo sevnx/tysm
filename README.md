@@ -38,8 +38,8 @@ async fn get_president_name() {
     
     // Request a chat completion from OpenAI and
     // parse the response into our `Name` struct.
-    let name: Name = 
-        client.chat("Who was the first US president?")
+    let name: Name = client
+        .chat("Who was the first US president?")
         .await
         .unwrap();
 
@@ -125,7 +125,7 @@ This project is licensed under the MIT License.
 
 ## Backstory
 
-The name stands for "thank you so much", which is what I say I ask ChatGPT a question and get a great answer!
+The name stands for "thank you so much", which is what I say I ask ChatGPT a question and get a great answer! If you prefer, it could also stand for "**Ty**ped **S**chema **M**agic".
 
 I like making ChatGPT-wrappers. Unfortunately the rust ecosystem for calling ChatGPT is more anemic than you would think, and it's not very complicated, so I always end up writing my own code for calling it. It's just an API endpoint after all. In my various git repos, I'd estimate I have about 5 implementations of this.
 
