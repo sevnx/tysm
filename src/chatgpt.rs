@@ -1,3 +1,6 @@
+use std::sync::RwLock;
+
+use lru::LruCache;
 use reqwest::Client;
 use schemars::{schema::RootSchema, schema_for, JsonSchema};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -7,6 +10,7 @@ pub struct ChatClient {
     pub api_key: String,
     pub url: String,
     pub model: String,
+    pub lru: RwLock<LruCache<String, String>>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -112,18 +116,27 @@ pub enum ChatError {
 }
 
 impl ChatClient {
+    /// Create a new [`ChatClient`].
+    /// If the API key is in the environment, you can use the [`Self::from_env`] method instead.
     pub fn new(api_key: impl Into<String>, model: impl Into<String>) -> Self {
+        use std::num::NonZeroUsize;
+
         Self {
             api_key: api_key.into(),
             url: "https://api.openai.com/v1/chat/completions".into(),
             model: model.into(),
+            lru: RwLock::new(LruCache::new(NonZeroUsize::new(1024).unwrap())),
         }
     }
 
+    /// Create a new [`ChatClient`].
+    /// This will use the `OPENAI_API_KEY` environment variable to set the API key.
+    /// It will also look in the `.env` file for an `OPENAI_API_KEY` variable (using dotenv).
     pub fn from_env(model: impl Into<String>) -> Result<Self, std::env::VarError> {
         Ok(Self::new(api_key()?, model))
     }
 
+    /// Send a chat message to the API and deserialize the response into the given type.
     pub async fn chat<T: DeserializeOwned + JsonSchema>(
         &self,
         prompt: impl Into<String>,
@@ -131,6 +144,8 @@ impl ChatClient {
         self.chat_with_system_prompt(prompt, "").await
     }
 
+    /// Send a chat message to the API and deserialize the response into the given type.
+    /// The system prompt is used to set the context of the conversation.
     pub async fn chat_with_system_prompt<T: DeserializeOwned + JsonSchema>(
         &self,
         prompt: impl Into<String>,
@@ -152,12 +167,11 @@ impl ChatClient {
         self.chat_with_messages::<T>(messages).await
     }
 
+    /// Send a sequence of chat messages to the API and deserialize the response into the given type.
     pub async fn chat_with_messages<T: DeserializeOwned + JsonSchema>(
         &self,
         messages: Vec<ChatMessage>,
     ) -> Result<T, ChatError> {
-        let client = Client::new();
-
         let schema = schema_for!(T);
 
         let chat_request = ChatRequest {
@@ -176,17 +190,11 @@ impl ChatClient {
             },
         };
 
-        println!("{}", serde_json::to_string_pretty(&chat_request).unwrap());
-
-        let response = client
-            .post(self.url.clone())
-            .header("Authorization", format!("Bearer {}", self.api_key.clone()))
-            .header("Content-Type", "application/json")
-            .json(&chat_request)
-            .send()
-            .await?;
-
-        let chat_response = response.text().await?;
+        let chat_response = if let Some(cached_response) = self.chat_cached(&chat_request).await {
+            cached_response
+        } else {
+            self.chat_uncached(&chat_request).await?
+        };
         let chat_response: ChatResponse = serde_json::from_str(&chat_response)?;
         let chat_response = chat_response
             .choices
@@ -208,6 +216,37 @@ impl ChatClient {
         let chat_response: T = serde_json::from_str(&chat_response)?;
 
         Ok(chat_response)
+    }
+
+    async fn chat_cached(&self, chat_request: &ChatRequest) -> Option<String> {
+        let chat_request = serde_json::to_string(chat_request).ok()?;
+
+        let mut lru = self.lru.write().ok()?;
+
+        lru.get(&chat_request).cloned()
+    }
+
+    async fn chat_uncached(&self, chat_request: &ChatRequest) -> Result<String, ChatError> {
+        let client = Client::new();
+        let response = client
+            .post(self.url.clone())
+            .header("Authorization", format!("Bearer {}", self.api_key.clone()))
+            .header("Content-Type", "application/json")
+            .json(chat_request)
+            .send()
+            .await?
+            .text()
+            .await?;
+
+        let chat_request = serde_json::to_string(chat_request)?;
+
+        self.lru
+            .write()
+            .ok()
+            .unwrap()
+            .put(chat_request, response.clone());
+
+        Ok(response)
     }
 }
 

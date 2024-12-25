@@ -16,10 +16,15 @@ mod tests {
 
     #[tokio::test]
     async fn it_works() {
-        let client = ChatClient::from_env("gpt-4o").unwrap();
+        let client = ChatClient {
+            url: "https://g7edusstdonmn3vxdh3qdypkrq0wzttx.lambda-url.us-east-1.on.aws/v1/chat/completions".to_string(),
+            ..ChatClient::from_env("gpt-4o").unwrap()
+        };
         let name: Name = client.chat("Who was the first president?").await.unwrap();
 
         assert_eq!(name.first, "George");
         assert_eq!(name.last, "Washington");
+
+        assert_eq!(client.lru.read().unwrap().len(), 1);
     }
 }
