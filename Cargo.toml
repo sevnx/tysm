@@ -2,6 +2,11 @@
 name = "typed-openai"
 version = "0.1.0"
 edition = "2021"
+description = "A strongly-typed Rust client for OpenAI's ChatGPT API"
+license = "MIT"
+homepage = "https://github.com/yourusername/typed-openai"
+repository = "https://github.com/yourusername/typed-openai"
+readme = "README.md"
 
 [dependencies]
 dotenv = "0.15.0"
