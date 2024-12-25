@@ -63,7 +63,9 @@ async fn get_president_name() {
    OPENAI_API_KEY=<your api key here>
    ```
 3. Add `.env` to your `.gitignore` so you don't accidentally commit it.
-4. Add the crate and the necessary dependencies to your Rust project with `cargo add tysm serde schemars`.
+4. Add the crate and the necessary dependencies to your Rust project with:
+    1. `cargo add tysm serde`. 
+    2. `cargo add --git https://github.com/GREsau/schemars.git schemars`
 
 
 ### Automatic Caching
@@ -150,3 +152,22 @@ response: {
 ```
 
 The ChatGPT API currently doesn't support non-required fields. [schemars](https://docs.rs/schemars/latest/schemars/index.html) considers `Option` non-required, so it doesn't work.
+
+2. the trait bound `Books: schemars::JsonSchema` is not satisfied
+
+```
+error[E0277]: the trait bound `MyStruct: schemars::JsonSchema` is not satisfied
+note: required by a bound in `ChatClient::chat`
+   --> ~/coding/typed-openai/src/chatgpt.rs:198:64
+    |
+198 |     pub async fn chat<T: DeserializeOwned + JsonSchema>(
+    |                                             ^^^^^^^^^^ required by this bound in `ChatClient::chat`
+```
+
+You probably forgot to add the in-development version of Schemars to your project. Try replacing the `schemars` entry in your Cargo.toml with this:
+
+```toml
+schemars = { git = "https://github.com/GREsau/schemars.git", version = "1.0.0-alpha.17", features = [
+    "preserve_order",
+] }
+```

@@ -2,9 +2,11 @@ use std::sync::RwLock;
 
 use lru::LruCache;
 use reqwest::Client;
-use schemars::{schema::RootSchema, schema_for, JsonSchema};
+use schemars::{schema_for, transform::Transform, JsonSchema, Schema};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use thiserror::Error;
+
+use crate::schema::OpenAiTransform;
 
 pub struct ChatClient {
     pub api_key: String,
@@ -74,7 +76,7 @@ pub struct SchemaFormat {
     #[serde(rename = "additionalProperties")]
     additional_properties: bool,
     #[serde(flatten)]
-    schema: RootSchema,
+    schema: Schema,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -222,7 +224,8 @@ impl ChatClient {
         &self,
         messages: Vec<ChatMessage>,
     ) -> Result<T, ChatError> {
-        let schema = schema_for!(T);
+        let mut schema = schema_for!(T);
+        OpenAiTransform.transform(&mut schema);
 
         let chat_request = ChatRequest {
             model: self.model.clone(),
