@@ -1,12 +1,10 @@
 mod chatgpt;
 
 pub use chatgpt::ChatClient;
-pub use schemars::JsonSchema;
-pub use serde::{Deserialize, Serialize};
 
 #[cfg(test)]
 mod tests {
-    use crate::{ChatClient, Deserialize, JsonSchema};
+    use crate::ChatClient;
 
     use std::sync::LazyLock;
     static CLIENT: LazyLock<ChatClient> = LazyLock::new(|| {
@@ -17,7 +15,7 @@ mod tests {
         }
     });
 
-    #[derive(Deserialize, JsonSchema, Debug)]
+    #[derive(tysm::Deserialize, tysm::JsonSchema, Debug)]
     struct Name {
         first: String,
         last: String,

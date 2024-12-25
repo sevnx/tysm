@@ -19,14 +19,10 @@ A strongly-typed Rust client for OpenAI's ChatGPT API that enforces type-safe re
 ## Usage
 
 ```rust
-use tysm::{
-    ChatClient, 
-    Deserialize, // re-exported from `serde`
-    JsonSchema,  // re-exported from `schemars`
-};
+use tysm::ChatClient;
 
 /// We want names separated into `first` and `last`.
-#[derive(Deserialize, JsonSchema)]
+#[derive(serde::Deserialize, schemars::JsonSchema)]
 struct Name {
     first: String,
     last: String,
@@ -66,7 +62,7 @@ async fn get_president_name() {
    OPENAI_API_KEY=<your api key here>
    ```
 3. Add `.env` to your `.gitignore` so you don't accidentally commit it.
-4. Add the crate to your Rust project with `cargo add tysm`
+4. Add the crate and the necessary dependencies to your Rust project with `cargo add tysm serde schemars`
 
 
 ### Automatic Caching
@@ -78,7 +74,7 @@ use std::sync::LazyLock;
 use tysm::ChatClient;
 
 // Create a lazily-initialized `CLIENT` variable to avoid recreating a `ChatClient` every time we want to hit the API.
-static CLIENT: LazyLock<ChatClient> = LazyLock::new(ChatClient::from_env("gpt-4o").unwrap());
+static CLIENT: LazyLock<ChatClient> = LazyLock::new(|| ChatClient::from_env("gpt-4o").unwrap());
 
 fn see() {
     #[derive(tysm::Deserialize, tysm::JsonSchema)]
@@ -126,12 +122,12 @@ This project is licensed under the MIT License.
 
 ## Backstory
 
-The name stands for "thank you so much", which is how I say when I ask ChatGPT a question and get a great answer!
+The name stands for "thank you so much", which is what I say I ask ChatGPT a question and get a great answer!
 
 I like making ChatGPT-wrappers. Unfortunately the rust ecosystem for calling ChatGPT is more anemic than you would think, and it's not very complicated, so I always end up writing my own code for calling it. It's just an API endpoint after all. In my various git repos, I'd estimate I have about 5 implementations of this.
 
 I was in the middle of writing my 6th on a lazy christmas eve when I realized that I'm too lazy to keep doing that. So I decided to solve the problem for myself once and for all.
 
-I almost never use streaming or anything fancy like that so this library doesn't support it. I designed it with my future lazy self in mind - which is why it re-exports everything you need, has dotenv built in, and has built-in caching.
+I almost never use streaming or anything fancy like that so this library doesn't support it. I designed it with my future lazy self in mind - which is why it has dotenv built in and has built-in caching.
 
 The whole library is basically one file right now, so hopefully it will be easy for you to move on from once you outgrow it.
