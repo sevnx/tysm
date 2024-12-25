@@ -10,6 +10,6 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0.107"
 tokio = { version = "1.21.2", features = ["macros", "rt-multi-thread"] }
 anyhow = "1.0.75"
-schemars = "0.8.12"
+schemars = { version = "0.8.12", features = ["preserve_order"] }
 thiserror = "2.0.9"
 tynm = "0.1.10"

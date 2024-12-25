@@ -101,9 +101,6 @@ fn api_key() -> Result<String, std::env::VarError> {
 
 #[derive(Error, Debug)]
 pub enum ChatError {
-    #[error("API key not found: {0}")]
-    ApiKeyNotFound(#[from] std::env::VarError),
-
     #[error("Network error: {0}")]
     NetworkError(#[from] reqwest::Error),
 
