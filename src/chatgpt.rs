@@ -1,7 +1,13 @@
 use reqwest::Client;
-use thiserror::Error;
 use schemars::{schema::RootSchema, schema_for, JsonSchema};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use thiserror::Error;
+
+pub struct ChatClient {
+    api_key: String,
+    url: String,
+    model: String,
+}
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum Role {
@@ -91,116 +97,122 @@ pub trait AiResponse: Serialize + DeserializeOwned + JsonSchema {
     const NAME: &'static str;
 }
 
-fn api_key() -> Result<String> {
+fn api_key() -> Result<String, std::env::VarError> {
     use dotenv::dotenv;
     dotenv().ok();
     std::env::var("OPENAI_API_KEY")
 }
 
 #[derive(Error, Debug)]
-pub enum ChatGptError {
+pub enum ChatError {
     #[error("API key not found: {0}")]
     ApiKeyNotFound(#[from] std::env::VarError),
-    
+
     #[error("Network error: {0}")]
     NetworkError(#[from] reqwest::Error),
-    
+
     #[error("JSON parsing error: {0}")]
     JsonError(#[from] serde_json::Error),
-    
+
     #[error("No choices returned from API")]
     NoChoices,
 }
 
-pub type Result<T> = std::result::Result<T, ChatGptError>;
+impl ChatClient {
+    pub fn new(api_key: impl Into<String>, model: impl Into<String>) -> Self {
+        Self {
+            api_key: api_key.into(),
+            url: "https://api.openai.com/v1/chat/completions".into(),
+            model: model.into(),
+        }
+    }
 
-pub async fn call<T: AiResponse>(
-    model: impl Into<String>,
-    prompt: impl Into<String>,
-) -> Result<T> {
-    call_with_system_prompt(model, prompt, "").await
-}
+    pub fn from_env(model: impl Into<String>) -> Result<Self, std::env::VarError> {
+        Ok(Self::new(api_key()?, model))
+    }
 
-pub async fn call_with_system_prompt<T: AiResponse>(
-    model: impl Into<String>,
-    prompt: impl Into<String>,
-    system_prompt: impl Into<String>,
-) -> Result<T> {
-    let model = model.into();
-    let prompt = prompt.into();
-    let system_prompt = system_prompt.into();
+    pub async fn chat<T: AiResponse>(&self, prompt: impl Into<String>) -> Result<T, ChatError> {
+        self.chat_with_system_prompt(prompt, "").await
+    }
 
-    let messages = vec![
-        ChatMessage {
-            role: Role::System,
-            content: system_prompt,
-        },
-        ChatMessage {
-            role: Role::User,
-            content: prompt,
-        },
-    ];
-    call_with_messages::<T>(model, messages).await
-}
+    pub async fn chat_with_system_prompt<T: AiResponse>(
+        &self,
+        prompt: impl Into<String>,
+        system_prompt: impl Into<String>,
+    ) -> Result<T, ChatError> {
+        let prompt = prompt.into();
+        let system_prompt = system_prompt.into();
 
-pub async fn call_with_messages<T: AiResponse>(
-    model: String,
-    messages: Vec<ChatMessage>,
-) -> Result<T> {
-    let api_key = api_key()?;
-    let client = Client::new();
-    let api_url = "https://api.openai.com/v1/chat/completions";
+        let messages = vec![
+            ChatMessage {
+                role: Role::System,
+                content: system_prompt,
+            },
+            ChatMessage {
+                role: Role::User,
+                content: prompt,
+            },
+        ];
+        self.chat_with_messages::<T>(messages).await
+    }
 
-    let schema = schema_for!(T);
+    pub async fn chat_with_messages<T: AiResponse>(
+        &self,
+        messages: Vec<ChatMessage>,
+    ) -> Result<T, ChatError> {
+        let client = Client::new();
 
-    let chat_request = ChatRequest {
-        model,
-        messages,
-        response_format: ResponseFormat {
-            format_type: "json_schema".to_string(),
-            json_schema: JsonSchemaFormat {
-                name: T::NAME.to_string(),
-                strict: true,
-                schema: SchemaFormat {
-                    additional_properties: false,
-                    schema,
+        let schema = schema_for!(T);
+
+        let chat_request = ChatRequest {
+            model: self.model.clone(),
+            messages,
+            response_format: ResponseFormat {
+                format_type: "json_schema".to_string(),
+                json_schema: JsonSchemaFormat {
+                    name: T::NAME.to_string(),
+                    strict: true,
+                    schema: SchemaFormat {
+                        additional_properties: false,
+                        schema,
+                    },
                 },
             },
-        },
-    };
+        };
 
-    println!("{}", serde_json::to_string_pretty(&chat_request).unwrap());
+        println!("{}", serde_json::to_string_pretty(&chat_request).unwrap());
 
-    let response = client
-        .post(api_url)
-        .header("Authorization", format!("Bearer {}", api_key))
-        .header("Content-Type", "application/json")
-        .json(&chat_request)
-        .send()
-        .await?;
+        let response = client
+            .post(self.url.clone())
+            .header("Authorization", format!("Bearer {}", self.api_key.clone()))
+            .header("Content-Type", "application/json")
+            .json(&chat_request)
+            .send()
+            .await?;
 
-    let chat_response = response.text().await?;
-    let chat_response: ChatResponse = serde_json::from_str(&chat_response)?;
-    let chat_response = chat_response
-        .choices
-        .first()
-        .ok_or(ChatGptError::NoChoices)?
-        .message
-        .content
-        .clone();
+        let chat_response = response.text().await?;
+        let chat_response: ChatResponse = serde_json::from_str(&chat_response)?;
+        let chat_response = chat_response
+            .choices
+            .first()
+            .ok_or(ChatError::NoChoices)?
+            .message
+            .content
+            .clone();
 
-    let chat_response = chat_response
-        .strip_prefix("```")
-        .unwrap_or(&chat_response)
-        .strip_prefix("json")
-        .unwrap_or(&chat_response)
-        .strip_suffix("```")
-        .unwrap_or(&chat_response)
-        .to_string();
+        let chat_response = chat_response
+            .strip_prefix("```")
+            .unwrap_or(&chat_response)
+            .strip_prefix("json")
+            .unwrap_or(&chat_response)
+            .strip_suffix("```")
+            .unwrap_or(&chat_response)
+            .to_string();
 
-    let chat_response: T = serde_json::from_str(&chat_response)?;
+        let chat_response: T = serde_json::from_str(&chat_response)?;
 
-    Ok(chat_response)
+        Ok(chat_response)
+    }
 }
 
 #[test]
@@ -230,7 +242,5 @@ fn test_deser() {
     }
 }
 "#;
-    let chat_response: ChatResponse = serde_json::from_str(&s)
-        .context(format!("deserializing {s:?}"))
-        .unwrap();
+    let chat_response: ChatResponse = serde_json::from_str(&s).unwrap();
 }
