@@ -6,7 +6,6 @@ use schemars::{schema::RootSchema, schema_for, JsonSchema};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use thiserror::Error;
 
-#[non_exhaustive]
 pub struct ChatClient {
     pub api_key: String,
     pub url: String,
