@@ -1,4 +1,4 @@
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{anyhow, Context};
 use reqwest::Client;
 use schemars::{schema::RootSchema, schema_for, JsonSchema};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -51,31 +51,43 @@ pub struct SchemaFormat {
 
 #[derive(Deserialize, Debug)]
 struct ChatResponse {
+    #[expect(unused)]
     id: String,
+    #[expect(unused)]
     object: String,
+    #[expect(unused)]
     created: u64,
+    #[expect(unused)]
     model: String,
+    #[expect(unused)]
     system_fingerprint: Option<String>,
     choices: Vec<ChatChoice>,
+    #[expect(unused)]
     usage: ChatUsage,
 }
 
 #[derive(Deserialize, Debug)]
 struct ChatChoice {
+    #[expect(unused)]
     index: u8,
     message: ChatMessage,
+    #[expect(unused)]
     logprobs: Option<serde_json::Value>,
+    #[expect(unused)]
     finish_reason: String,
 }
 
 #[derive(Deserialize, Debug)]
 struct ChatUsage {
+    #[expect(unused)]
     prompt_tokens: u32,
+    #[expect(unused)]
     completion_tokens: u32,
+    #[expect(unused)]
     total_tokens: u32,
 }
 
-pub trait AiType: Serialize + DeserializeOwned + JsonSchema {
+pub trait AiResponse: Serialize + DeserializeOwned + JsonSchema {
     const NAME: &'static str;
 }
 
@@ -87,11 +99,22 @@ fn api_key() -> anyhow::Result<String> {
     })
 }
 
-pub async fn call<T: AiType>(
-    model: String,
-    prompt: String,
-    system_prompt: String,
+pub async fn call<T: AiResponse>(
+    model: impl Into<String>,
+    prompt: impl Into<String>,
 ) -> anyhow::Result<T> {
+    call_with_system_prompt(model, prompt, "").await
+}
+
+pub async fn call_with_system_prompt<T: AiResponse>(
+    model: impl Into<String>,
+    prompt: impl Into<String>,
+    system_prompt: impl Into<String>,
+) -> anyhow::Result<T> {
+    let model = model.into();
+    let prompt = prompt.into();
+    let system_prompt = system_prompt.into();
+
     let messages = vec![
         ChatMessage {
             role: Role::System,
@@ -105,7 +128,7 @@ pub async fn call<T: AiType>(
     call_with_messages::<T>(model, messages).await
 }
 
-pub async fn call_with_messages<T: AiType>(
+pub async fn call_with_messages<T: AiResponse>(
     model: String,
     messages: Vec<ChatMessage>,
 ) -> anyhow::Result<T> {
@@ -146,7 +169,7 @@ pub async fn call_with_messages<T: AiType>(
         serde_json::from_str(&chat_response).context(format!("deserializing {chat_response:?}"))?;
     let chat_response = chat_response
         .choices
-        .get(0)
+        .first()
         .ok_or_else(|| anyhow!("Expected at least one choice, got {chat_response:?}"))?
         .message
         .content
