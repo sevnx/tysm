@@ -1,6 +1,6 @@
 # tysm
 
-**OpenAI Chat Completions for lazy people**
+**Typed OpenAI Chat Completions**
 
 A strongly-typed Rust client for OpenAI's ChatGPT API that enforces type-safe responses using [Structured Outputs](https://platform.openai.com/docs/guides/structured-outputs).
 

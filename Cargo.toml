@@ -1,8 +1,8 @@
 [package]
 name = "tysm"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2021"
-description = "OpenAI Chat Completions for lazy people"
+description = "Typed OpenAI Chat Completions"
 license = "MIT"
 homepage = "https://github.com/not-pizza/tysm"
 repository = "https://github.com/not-pizza/tysm"
