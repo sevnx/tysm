@@ -13,6 +13,7 @@
   - [Feature flags](#feature-flags)
   - [License](#license)
   - [Backstory](#backstory)
+  - [Footguns](#footguns)
 
 A strongly-typed Rust client for OpenAI's ChatGPT API that enforces type-safe responses using [Structured Outputs](https://platform.openai.com/docs/guides/structured-outputs).
 
@@ -62,7 +63,7 @@ async fn get_president_name() {
    OPENAI_API_KEY=<your api key here>
    ```
 3. Add `.env` to your `.gitignore` so you don't accidentally commit it.
-4. Add the crate and the necessary dependencies to your Rust project with `cargo add tysm serde schemars`
+4. Add the crate and the necessary dependencies to your Rust project with `cargo add tysm serde schemars`.
 
 
 ### Automatic Caching
@@ -131,3 +132,21 @@ I was in the middle of writing my 6th on a lazy christmas eve when I realized th
 I almost never use streaming or anything fancy like that so this library doesn't support it. I designed it with my future lazy self in mind - which is why it has dotenv built in and has built-in caching.
 
 The whole library is basically one file right now, so hopefully it will be easy for you to move on from once you outgrow it.
+
+## Footguns
+
+1. `Option`
+
+```
+Error: API returned an error response: missing field `id` at line 8 column 1 
+response: {
+  "error": {
+    "message": "Invalid schema for response_format 'MedicalInfo': In context=(), 'required' is required to be supplied and to be an array including every key in properties. Missing 'epidemiology'.",
+    "type": "invalid_request_error",
+    "param": "response_format",
+    "code": null
+  }
+}
+```
+
+The ChatGPT API currently doesn't support non-required fields. [schemars](https://docs.rs/schemars/latest/schemars/index.html) considers `Option` non-required, so it doesn't work.

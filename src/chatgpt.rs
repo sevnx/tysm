@@ -14,7 +14,7 @@ pub struct ChatClient {
     pub usage: RwLock<ChatUsage>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum Role {
     #[serde(rename = "user")]
     User,
@@ -24,7 +24,7 @@ pub enum Role {
     System,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ChatMessage {
     pub role: Role,
     pub content: Vec<ChatMessageContent>,
@@ -47,21 +47,21 @@ pub struct ImageUrl {
     url: String,
 }
 
-#[derive(Serialize)]
-struct ChatRequest {
+#[derive(Serialize, Clone, Debug)]
+pub struct ChatRequest {
     model: String,
     messages: Vec<ChatMessage>,
     response_format: ResponseFormat,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug, Clone)]
 pub struct ResponseFormat {
     #[serde(rename = "type")]
     pub format_type: String,
     pub json_schema: JsonSchemaFormat,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug, Clone)]
 
 pub struct JsonSchemaFormat {
     name: String,
@@ -69,7 +69,7 @@ pub struct JsonSchemaFormat {
     schema: SchemaFormat,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug, Clone)]
 pub struct SchemaFormat {
     #[serde(rename = "additionalProperties")]
     additional_properties: bool,
@@ -110,7 +110,7 @@ struct ChatChoice {
     finish_reason: String,
 }
 
-#[derive(Deserialize, Debug, Default, Clone, Copy)]
+#[derive(Deserialize, Debug, Default, Clone, Copy, Eq, PartialEq)]
 pub struct ChatUsage {
     pub prompt_tokens: u32,
     pub completion_tokens: u32,
@@ -148,8 +148,14 @@ pub enum ChatError {
     #[error("Request error: {0}")]
     RequestError(#[from] reqwest::Error),
 
-    #[error("JSON parsing error: {0}")]
-    JsonError(#[from] serde_json::Error),
+    #[error("JSON serialization error: {0}")]
+    JsonSerializeError(serde_json::Error, ChatRequest),
+
+    #[error("API returned an error response: {0} \nresponse: {1} \nrequest: {2:?}")]
+    ApiResponseError(serde_json::Error, String, ChatRequest),
+
+    #[error("API returned a response that was not a valid JSON object: {0} \nresponse: {1}")]
+    InvalidJson(serde_json::Error, String),
 
     #[error("No choices returned from API")]
     NoChoices,
@@ -235,11 +241,17 @@ impl ChatClient {
         };
 
         let chat_response = if let Some(cached_response) = self.chat_cached(&chat_request).await {
-            let chat_response: ChatResponse = serde_json::from_str(&cached_response)?;
+            let chat_response: ChatResponse =
+                serde_json::from_str(&cached_response).map_err(|e| {
+                    ChatError::ApiResponseError(e, cached_response.clone(), chat_request.clone())
+                })?;
             chat_response
         } else {
             let chat_response = self.chat_uncached(&chat_request).await?;
-            let chat_response: ChatResponse = serde_json::from_str(&chat_response)?;
+            let chat_response: ChatResponse =
+                serde_json::from_str(&chat_response).map_err(|e| {
+                    ChatError::ApiResponseError(e, chat_response.clone(), chat_request.clone())
+                })?;
             if let Ok(mut usage) = self.usage.write() {
                 *usage += chat_response.usage;
             }
@@ -253,7 +265,8 @@ impl ChatClient {
             .content
             .clone();
 
-        let chat_response: T = serde_json::from_str(&chat_response)?;
+        let chat_response: T = serde_json::from_str(&chat_response)
+            .map_err(|e| ChatError::InvalidJson(e, chat_response.clone()))?;
 
         Ok(chat_response)
     }
@@ -279,7 +292,8 @@ impl ChatClient {
             .text()
             .await?;
 
-        let chat_request = serde_json::to_string(chat_request)?;
+        let chat_request = serde_json::to_string(chat_request)
+            .map_err(|e| ChatError::JsonSerializeError(e, chat_request.clone()))?;
 
         self.lru
             .write()

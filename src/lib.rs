@@ -1,4 +1,5 @@
 mod chatgpt;
+mod schema;
 
 pub use chatgpt::ChatClient;
 
@@ -15,7 +16,7 @@ mod tests {
         }
     });
 
-    #[derive(tysm::Deserialize, tysm::JsonSchema, Debug)]
+    #[derive(serde::Deserialize, schemars::JsonSchema, Debug)]
     struct Name {
         first: String,
         last: String,
@@ -30,10 +31,11 @@ mod tests {
 
         assert_eq!(CLIENT.lru.read().unwrap().len(), 1);
 
-        let usage = CLIENT.usage();
+        let usage1 = CLIENT.usage();
         for _ in 0..5 {
             let _name: Name = CLIENT.chat("Who was the first president?").await.unwrap();
         }
         let usage2 = CLIENT.usage();
+        assert_eq!(usage1, usage2);
     }
 }
