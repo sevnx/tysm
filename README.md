@@ -21,11 +21,11 @@ A strongly-typed Rust client for OpenAI's ChatGPT API that enforces type-safe re
 ```rust
 use tysm::{
     ChatClient, 
-    Deserialize, // re-exported from `serde` for convenience
-    JsonSchema,  // re-exported from `schemars` for convenience
+    Deserialize, // re-exported from `serde`
+    JsonSchema,  // re-exported from `schemars`
 };
 
-/// Let's say that for some reason, we want names separated into `first` and `last` fields.
+/// We want names separated into `first` and `last`.
 #[derive(Deserialize, JsonSchema)]
 struct Name {
     first: String,
@@ -34,13 +34,17 @@ struct Name {
 
 async fn get_president_name() {
     // Create a client.
-    // `from_env` will look for an API key under the environment variable "OPENAI_API_KEY"
+    // `from_env` will look for an API key under the environment
+    // variable "OPENAI_API_KEY"
     // It will also look inside `.env` if such a file exists.
     let client = ChatClient::from_env("gpt-4o").unwrap();
     
-    // Request a chat completion from OpenAI.
-    // Then parse the response into our `Name` struct.
-    let name: Name = client.chat("Who was the first US president?").await.unwrap();
+    // Request a chat completion from OpenAI and
+    // parse the response into our `Name` struct.
+    let name: Name = 
+        client.chat("Who was the first US president?")
+        .await
+        .unwrap();
 
     assert_eq!(name.first, "George");
     assert_eq!(name.last, "Washington");
