@@ -153,8 +153,8 @@ pub enum ChatError {
     #[error("JSON serialization error: {0}")]
     JsonSerializeError(serde_json::Error, ChatRequest),
 
-    #[error("API returned an error response: {0} \nresponse: {1} \nrequest: {2:?}")]
-    ApiResponseError(serde_json::Error, String, ChatRequest),
+    #[error("API returned an error response: {0} \nresponse: {1} \nrequest: {2}")]
+    ApiResponseError(serde_json::Error, String, String),
 
     #[error("API returned a response that was not a valid JSON object: {0} \nresponse: {1}")]
     InvalidJson(serde_json::Error, String),
@@ -243,17 +243,19 @@ impl ChatClient {
             },
         };
 
+        let chat_request_str = serde_json::to_string(&chat_request).unwrap();
+
         let chat_response = if let Some(cached_response) = self.chat_cached(&chat_request).await {
             let chat_response: ChatResponse =
                 serde_json::from_str(&cached_response).map_err(|e| {
-                    ChatError::ApiResponseError(e, cached_response.clone(), chat_request.clone())
+                    ChatError::ApiResponseError(e, cached_response.clone(), chat_request_str)
                 })?;
             chat_response
         } else {
             let chat_response = self.chat_uncached(&chat_request).await?;
             let chat_response: ChatResponse =
                 serde_json::from_str(&chat_response).map_err(|e| {
-                    ChatError::ApiResponseError(e, chat_response.clone(), chat_request.clone())
+                    ChatError::ApiResponseError(e, chat_response.clone(), chat_request_str)
                 })?;
             if let Ok(mut usage) = self.usage.write() {
                 *usage += chat_response.usage;

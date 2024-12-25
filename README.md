@@ -137,23 +137,7 @@ The whole library is basically one file right now, so hopefully it will be easy 
 
 ## Footguns
 
-1. `Option`
-
-```
-Error: API returned an error response: missing field `id` at line 8 column 1 
-response: {
-  "error": {
-    "message": "Invalid schema for response_format 'MedicalInfo': In context=(), 'required' is required to be supplied and to be an array including every key in properties. Missing 'epidemiology'.",
-    "type": "invalid_request_error",
-    "param": "response_format",
-    "code": null
-  }
-}
-```
-
-The ChatGPT API currently doesn't support non-required fields. [schemars](https://docs.rs/schemars/latest/schemars/index.html) considers `Option` non-required, so it doesn't work.
-
-2. the trait bound `Books: schemars::JsonSchema` is not satisfied
+1. the trait bound `Books: schemars::JsonSchema` is not satisfied
 
 ```
 error[E0277]: the trait bound `MyStruct: schemars::JsonSchema` is not satisfied
