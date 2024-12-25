@@ -12,7 +12,11 @@ A strongly-typed Rust client for OpenAI's ChatGPT API that enforces type-safe re
 ## Usage
 
 ```rust
-use tysm::ChatClient;
+use tysm::{
+    ChatClient, 
+    Deserialize, // re-exported from `serde` for convenience
+    JsonSchema,  // re-exported from `schemars` for convenience
+};
 
 #[derive(Deserialize, JsonSchema)]
 struct Name {

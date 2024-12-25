@@ -1,20 +1,14 @@
 mod chatgpt;
 
 pub use chatgpt::ChatClient;
-
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
-}
+pub use schemars::JsonSchema;
+pub use serde::{Deserialize, Serialize};
 
 #[cfg(test)]
 mod tests {
-    use chatgpt::ChatClient;
-    use schemars::JsonSchema;
-    use serde::{Deserialize, Serialize};
+    use crate::{ChatClient, Deserialize, JsonSchema};
 
-    use super::*;
-
-    #[derive(Serialize, Deserialize, JsonSchema, Debug)]
+    #[derive(Deserialize, JsonSchema, Debug)]
     struct Name {
         first: String,
         last: String,

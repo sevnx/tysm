@@ -4,9 +4,9 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use thiserror::Error;
 
 pub struct ChatClient {
-    api_key: String,
-    url: String,
-    model: String,
+    pub api_key: String,
+    pub url: String,
+    pub model: String,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
