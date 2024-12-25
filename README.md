@@ -1,6 +1,18 @@
 # tysm
 
-**Typed OpenAI Chat Completions**
+**Typed OpenAI Chat Completions in Rust**
+
+## Table of Contents
+- [tysm](#tysm)
+  - [Table of Contents](#table-of-contents)
+  - [Usage](#usage)
+  - [Features](#features)
+  - [Setup](#setup)
+    - [Automatic Caching](#automatic-caching)
+    - [Custom API endpoints](#custom-api-endpoints)
+  - [Feature flags](#feature-flags)
+  - [License](#license)
+  - [Backstory](#backstory)
 
 A strongly-typed Rust client for OpenAI's ChatGPT API that enforces type-safe responses using [Structured Outputs](https://platform.openai.com/docs/guides/structured-outputs).
 
@@ -94,7 +106,15 @@ By the way, feel free to use this endpoint if you want, but I don't promise to m
 
 ## Feature flags
 
-1. `dotenv` - 
+The following feature flags are available:
+
+1. `dotenv` - (enabled by default) Enables automatic loading of environment variables from a `.env` file. 
+
+Example of disabling dotenv:
+```toml
+[dependencies]
+tysm = { version = "0.2", default-features = false }
+```
 
 ## License
 
