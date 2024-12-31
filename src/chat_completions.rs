@@ -1,3 +1,6 @@
+//! Chat completions are the most common way to interact with the OpenAI API.
+//! This module provides a client for interacting with the ChatGPT API.
+
 use std::sync::RwLock;
 
 use lru::LruCache;
@@ -7,18 +10,19 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::schema::OpenAiTransform;
+use crate::utils::{api_key, OpenAiApiKeyError};
 
 /// To use this library, you need to create a [`ChatClient`]. This contains various information needed to interact with the ChatGPT API,
 /// such as the API key, the model to use, and the URL of the API.
 ///
 /// ```rust
-/// # use tysm::ChatClient;
+/// # use tysm::chat_completions::ChatClient;
 /// // Create a client with your API key and model
 /// let client = ChatClient::new("sk-1234567890", "gpt-4o");
 /// ```
 ///
 /// ```rust
-/// # use tysm::ChatClient;
+/// # use tysm::chat_completions::ChatClient;
 /// // Create a client using an API key stored in an `OPENAI_API_KEY` environment variable.
 /// // (This will also look for an `.env` file in the current directory.)
 /// let client = ChatClient::from_env("gpt-4o").unwrap();
@@ -36,12 +40,16 @@ pub struct ChatClient {
     pub usage: RwLock<ChatUsage>,
 }
 
+/// The role of a message.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum Role {
+    /// The user is sending the message.
     #[serde(rename = "user")]
     User,
+    /// The assistant is sending the message.
     #[serde(rename = "assistant")]
     Assistant,
+    /// The system is sending the message.
     #[serde(rename = "system")]
     System,
 }
@@ -71,7 +79,7 @@ pub enum ChatMessageContent {
     /// The image URL can also be a base64 encoded image.
     /// example:
     /// ```rust
-    /// use tysm::{ChatMessageContent, ImageUrl};
+    /// use tysm::chat_completions::{ChatMessageContent, ImageUrl};
     ///
     /// let base64_image = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
     /// let content = ChatMessageContent::ImageUrl {
@@ -103,25 +111,26 @@ pub struct ChatRequest {
     /// The messages to send to the API.
     pub messages: Vec<ChatMessage>,
     /// The response format to use for the ChatGPT API.
+    #[allow(private_interfaces)]
     pub response_format: ResponseFormat,
 }
 
 #[derive(Serialize, Debug, Clone)]
-pub struct ResponseFormat {
+pub(crate) struct ResponseFormat {
     #[serde(rename = "type")]
     pub format_type: String,
     pub json_schema: JsonSchemaFormat,
 }
 
 #[derive(Serialize, Debug, Clone)]
-pub struct JsonSchemaFormat {
+pub(crate) struct JsonSchemaFormat {
     name: String,
     strict: bool,
     schema: SchemaFormat,
 }
 
 #[derive(Serialize, Debug, Clone)]
-pub struct SchemaFormat {
+pub(crate) struct SchemaFormat {
     #[serde(rename = "additionalProperties")]
     additional_properties: bool,
     #[serde(flatten)]
@@ -129,7 +138,7 @@ pub struct SchemaFormat {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct ChatMessageResponse {
+pub(crate) struct ChatMessageResponse {
     pub role: Role,
     pub content: String,
 }
@@ -161,10 +170,14 @@ struct ChatChoice {
     finish_reason: String,
 }
 
+/// The token consumption of the chat-completions API.
 #[derive(Deserialize, Debug, Default, Clone, Copy, Eq, PartialEq)]
 pub struct ChatUsage {
+    /// The number of tokens used for the prompt.
     pub prompt_tokens: u32,
+    /// The number of tokens used for the completion.
     pub completion_tokens: u32,
+    /// The total number of tokens used.
     pub total_tokens: u32,
 }
 
@@ -174,25 +187,6 @@ impl std::ops::AddAssign for ChatUsage {
         self.completion_tokens += rhs.completion_tokens;
         self.total_tokens += rhs.total_tokens;
     }
-}
-
-/// An error that occurs when the OpenAI API key is not found in the environment.
-#[derive(Debug)]
-pub struct OpenAiApiKeyError(#[expect(unused)] std::env::VarError);
-impl std::fmt::Display for OpenAiApiKeyError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Unable to find the OpenAI API key in the environment. Please set the OPENAI_API_KEY environment variable. API keys can be found at <https://platform.openai.com/api-keys>.")
-    }
-}
-impl std::error::Error for OpenAiApiKeyError {}
-
-fn api_key() -> Result<String, OpenAiApiKeyError> {
-    #[cfg(feature = "dotenv")]
-    {
-        use dotenv::dotenv;
-        dotenv().ok();
-    }
-    std::env::var("OPENAI_API_KEY").map_err(OpenAiApiKeyError)
 }
 
 /// Errors that can occur when interacting with the ChatGPT API.
@@ -224,7 +218,7 @@ impl ChatClient {
     /// If the API key is in the environment, you can use the [`Self::from_env`] method instead.
     ///
     /// ```rust
-    /// use tysm::ChatClient;
+    /// use tysm::chat_completions::ChatClient;
     ///
     /// let client = ChatClient::new("sk-1234567890", "gpt-4o");
     /// ```
@@ -245,7 +239,7 @@ impl ChatClient {
     /// It will also look in the `.env` file for an `OPENAI_API_KEY` variable (using dotenv).
     ///
     /// ```rust
-    /// # use tysm::ChatClient;
+    /// # use tysm::chat_completions::ChatClient;
     /// let client = ChatClient::from_env("gpt-4o").unwrap();
     /// ```
     pub fn from_env(model: impl Into<String>) -> Result<Self, OpenAiApiKeyError> {
@@ -255,7 +249,7 @@ impl ChatClient {
     /// Send a chat message to the API and deserialize the response into the given type.
     ///
     /// ```rust
-    /// # use tysm::ChatClient;
+    /// # use tysm::chat_completions::ChatClient;
     /// #  let client = {
     /// #     let my_api = "https://g7edusstdonmn3vxdh3qdypkrq0wzttx.lambda-url.us-east-1.on.aws/v1/chat/completions".to_string();
     /// #     ChatClient {

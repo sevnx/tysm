@@ -22,7 +22,7 @@ A strongly-typed Rust client for OpenAI's ChatGPT API that enforces type-safe re
 ## Usage
 
 ```rust
-use tysm::ChatClient;
+use tysm::chat_completions::ChatClient;
 
 /// We want names separated into `first` and `last`.
 #[derive(serde::Deserialize, schemars::JsonSchema)]
@@ -52,9 +52,12 @@ async fn get_president_name() {
 
 ## Features
 
-- Type-safe API responses
-- Concise interface
-- Automatic local caching of API responses
+- Chat-Completions API
+  - Type-safe API responses via Structured Outputs
+  - Concise interface
+  - Automatic local caching of API responses
+- Embeddings API
+  - Single and batch requests supported
 
 ## Setup
 

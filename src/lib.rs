@@ -12,7 +12,7 @@
 //! ## Usage
 //!
 //! ```rust,ignore
-//! use tysm::ChatClient;
+//! use tysm::chat_completions::ChatClient;
 //!
 //! // We want names separated into `first` and `last`.
 //! #[derive(serde::Deserialize, schemars::JsonSchema)]
@@ -44,20 +44,16 @@
 
 #![deny(missing_docs)]
 
-mod chatgpt;
+pub mod chat_completions;
+pub mod embeddings;
 mod schema;
+mod utils;
 
-pub use chatgpt::ChatClient;
-pub use chatgpt::ChatError;
-pub use chatgpt::ChatMessage;
-pub use chatgpt::ChatMessageContent;
-pub use chatgpt::ChatRequest;
-pub use chatgpt::ImageUrl;
-pub use chatgpt::OpenAiApiKeyError;
+pub use utils::OpenAiApiKeyError;
 
 #[cfg(test)]
 mod tests {
-    use crate::ChatClient;
+    use crate::chat_completions::ChatClient;
 
     use std::sync::LazyLock;
     static CLIENT: LazyLock<ChatClient> = LazyLock::new(|| {
