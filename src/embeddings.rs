@@ -31,6 +31,13 @@ struct Embedding {
     index: usize,
 }
 
+/// A vector of floats. Returned as a result of embedding a document.
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct Vector {
+    /// The elements of the vector
+    pub elements: Vec<f32>,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 struct Usage {
     prompt_tokens: u32,
@@ -48,7 +55,7 @@ pub struct EmbeddingsClient {
     /// The API key to use for the ChatGPT API.
     pub api_key: String,
     /// The URL of the ChatGPT API. Customize this if you are using a custom API that is compatible with OpenAI's.
-    pub url: String,
+    pub url: url::Url,
     /// The model to use for the ChatGPT API.
     pub model: String,
 }
@@ -89,7 +96,7 @@ impl EmbeddingsClient {
     pub fn new(api_key: impl Into<String>, model: impl Into<String>) -> Self {
         Self {
             api_key: api_key.into(),
-            url: "https://api.openai.com/v1/embeddings/".into(),
+            url: "https://api.openai.com/v1/embeddings".parse().unwrap(),
             model: model.into(),
         }
     }
@@ -107,14 +114,14 @@ impl EmbeddingsClient {
     }
 
     /// Embed a single document into a vector space.
-    pub async fn embed_single(&self, document: String) -> Result<Vec<f32>, EmbeddingsError> {
+    pub async fn embed_single(&self, document: String) -> Result<Vector, EmbeddingsError> {
         let embeddings = self.embed(vec![document]).await?;
         Ok(embeddings.first().unwrap().clone())
     }
 
     /// Embed documents into a vector space.
     /// Documents are processed in batches of 100 to stay within API limits.
-    pub async fn embed(&self, documents: Vec<String>) -> Result<Vec<Vec<f32>>, EmbeddingsError> {
+    pub async fn embed(&self, documents: Vec<String>) -> Result<Vec<Vector>, EmbeddingsError> {
         const BATCH_SIZE: usize = 100;
         let documents_len = documents.len();
         let client = Client::new();
@@ -128,7 +135,7 @@ impl EmbeddingsClient {
             };
 
             let response = client
-                .post(&self.url)
+                .post(self.url.clone())
                 .header("Authorization", format!("Bearer {}", self.api_key))
                 .header("Content-Type", "application/json")
                 .json(&request)
@@ -160,9 +167,128 @@ impl EmbeddingsClient {
                 return Err(EmbeddingsError::IncorrectNumberOfEmbeddings);
             }
 
-            all_embeddings.extend(embeddings_response.data.into_iter().map(|e| e.embedding));
+            all_embeddings.extend(embeddings_response.data.into_iter().map(|e| Vector {
+                elements: e.embedding,
+            }));
         }
 
         Ok(all_embeddings)
+    }
+}
+
+impl Vector {
+    /// Calculate the cosine similarity between two vectors.
+    ///
+    /// Panics if the vectors have different dimensions.
+    pub fn cosine_similarity(&self, other: &Vector) -> f32 {
+        if self.elements.len() != other.elements.len() {
+            panic!("Cannot calculate cosine similarity between vectors of different dimensions");
+        }
+
+        let dot_product = self.dot_product(other);
+        let magnitude_a = self.magnitude();
+        let magnitude_b = other.magnitude();
+
+        if magnitude_a == 0.0 || magnitude_b == 0.0 {
+            return 0.0;
+        }
+
+        dot_product / (magnitude_a * magnitude_b)
+    }
+
+    /// Calculate the Euclidean distance between two vectors.
+    ///
+    /// Panics if the vectors have different dimensions.
+    pub fn euclidean_distance(&self, other: &Vector) -> f32 {
+        if self.elements.len() != other.elements.len() {
+            panic!("Cannot calculate Euclidean distance between vectors of different dimensions");
+        }
+
+        self.elements
+            .iter()
+            .zip(other.elements.iter())
+            .map(|(a, b)| (a - b).powi(2))
+            .sum::<f32>()
+            .sqrt()
+    }
+
+    /// Create a normalized (unit) vector with the same direction.
+    pub fn normalize(&self) -> Self {
+        let magnitude = self.magnitude();
+        if magnitude == 0.0 {
+            return self.clone();
+        }
+
+        Vector {
+            elements: self.elements.iter().map(|x| x / magnitude).collect(),
+        }
+    }
+
+    /// Calculate the dot product of two vectors.
+    ///
+    /// Panics if the vectors have different dimensions.
+    pub fn dot_product(&self, other: &Vector) -> f32 {
+        if self.elements.len() != other.elements.len() {
+            panic!("Cannot calculate dot product between vectors of different dimensions");
+        }
+
+        self.elements
+            .iter()
+            .zip(other.elements.iter())
+            .map(|(a, b)| a * b)
+            .sum()
+    }
+
+    /// Add another vector to this one.
+    ///
+    /// Panics if the vectors have different dimensions.
+    pub fn add(&self, other: &Vector) -> Self {
+        if self.elements.len() != other.elements.len() {
+            panic!("Cannot add vectors of different dimensions");
+        }
+
+        Vector {
+            elements: self
+                .elements
+                .iter()
+                .zip(other.elements.iter())
+                .map(|(a, b)| a + b)
+                .collect(),
+        }
+    }
+
+    /// Subtract another vector from this one.
+    ///
+    /// Panics if the vectors have different dimensions.
+    pub fn subtract(&self, other: &Vector) -> Self {
+        if self.elements.len() != other.elements.len() {
+            panic!("Cannot subtract vectors of different dimensions");
+        }
+
+        Vector {
+            elements: self
+                .elements
+                .iter()
+                .zip(other.elements.iter())
+                .map(|(a, b)| a - b)
+                .collect(),
+        }
+    }
+
+    /// Multiply this vector by a scalar.
+    pub fn scale(&self, scalar: f32) -> Self {
+        Vector {
+            elements: self.elements.iter().map(|x| x * scalar).collect(),
+        }
+    }
+
+    /// Calculate the magnitude (length) of the vector.
+    pub fn magnitude(&self) -> f32 {
+        self.elements.iter().map(|x| x * x).sum::<f32>().sqrt()
+    }
+
+    /// Get the dimension (number of elements) of the vector.
+    pub fn dimension(&self) -> usize {
+        self.elements.len()
     }
 }

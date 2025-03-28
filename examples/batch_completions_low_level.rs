@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use tysm::{
-    batch::{BatchClient, BatchRequestItem},
+    batch::{BatchClient, BatchRequestItem, BatchStatus},
     chat_completions::{ChatClient, ChatMessage, ChatRequest, ResponseFormat},
 };
 
@@ -71,6 +71,12 @@ async fn main() -> anyhow::Result<()> {
     println!("Listing all batches...");
     let batches = batch_client.list_batches().await?;
     println!("Batches: {:?}", batches.len());
+    for batch in batches
+        .iter()
+        .filter(|b| b.status == BatchStatus::InProgress)
+    {
+        println!("Batch {} in progress since {}", batch.id, batch.created_at);
+    }
 
     // Check batch status
     println!("Checking batch status...");
