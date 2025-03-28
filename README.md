@@ -1,6 +1,22 @@
 # tysm - Thank You So Much
 
-**Typed OpenAI Chat Completions in Rust**
+**Batteries-included Rust OpenAI Client**
+
+Including...
+
+- **Chat-Completions API**
+  - Type-safe API responses via Structured Outputs
+  - Automatic schema generation
+  - Automatic deserialization
+  - Concise interface
+  - Automatic local caching of API responses
+  - Batch API support
+- **Embeddings API**
+  - Single and batch requests supported
+- **Files API**
+  - Create, List, and Delete files
+
+The **Typed Chat Completions** feature is the most interesting part, so most of this readme will focus on that.
 
 [crates.io](https://crates.io/crates/tysm) | [docs.rs](https://docs.rs/tysm/latest/tysm/) | [blog post](https://chadnauseam.com/coding/ai/openai-structured-outputs-are-really-useful)
 
@@ -8,7 +24,6 @@
 - [tysm - Thank You So Much](#tysm---thank-you-so-much)
   - [Table of Contents](#table-of-contents)
   - [Usage](#usage)
-  - [Features](#features)
   - [Setup](#setup)
     - [Automatic Caching](#automatic-caching)
     - [Custom API endpoints](#custom-api-endpoints)
@@ -50,14 +65,17 @@ async fn get_president_name() {
 }
 ```
 
-## Features
+See the `examples/` directory for examples of the embeddings, files, and batch APIs.
 
-- Chat-Completions API
-  - Type-safe API responses via Structured Outputs
-  - Concise interface
-  - Automatic local caching of API responses
-- Embeddings API
-  - Single and batch requests supported
+There are 4 basic methods on `ChatClient`. Each one is "lower level" than the previous.
+
+1. [`ChatClient::chat`](https://docs.rs/tysm/latest/tysm/chat_completions/struct.ChatClient.html#method.chat): send one message to the chat-completions API, and deserialize the response into the expected type.
+2. [`ChatClient::chat_with_system_prompt`](https://docs.rs/tysm/latest/tysm/chat_completions/struct.ChatClient.html#method.chat_with_system_prompt): send a system prompt and a message to the chat-completions API, and deserialize the response into the expected type. The system prompt is the first parameter.
+3. [`ChatClient::chat_with_messages`](https://docs.rs/tysm/latest/tysm/chat_completions/struct.ChatClient.html#method.chat_with_messages): send an arbitrary sequence of messages to the chat-completions API, and deserialize the response into the expected type.
+4. [`ChatClient::chat_with_messages_raw`](https://docs.rs/tysm/latest/tysm/chat_completions/struct.ChatClient.html#method.chat_with_messages_raw): send an arbitrary sequence of messages to the chat-completions API, and return the response as-is (without deserializing).
+
+Each one has a corresponding batch equivalent (`batch_chat`, `batch_chat_with_system_prompt`, `batch_chat_with_messages`, `batch_chat_with_messages_raw`). These go through the batch API, which is cheaper and has higher ratelimits, but is much higher-latency. The responses to the batch API stick around in OpenAI's servers for some time, and before starting a new batch request, `tysm` will automatically check if that same request has been made before (and reuse it if so). 
+
 
 ## Setup
 

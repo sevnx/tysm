@@ -16,3 +16,11 @@ pub(crate) fn api_key() -> Result<String, OpenAiApiKeyError> {
     }
     std::env::var("OPENAI_API_KEY").map_err(OpenAiApiKeyError)
 }
+
+pub(crate) fn remove_trailing_slash(url: url::Url) -> url::Url {
+    let mut url = url;
+    let path = url.path().to_string();
+    let path = path.trim_end_matches('/');
+    url.set_path(path);
+    url
+}

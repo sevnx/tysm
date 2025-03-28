@@ -44,12 +44,44 @@
 
 #![deny(missing_docs)]
 
+pub mod batch;
 pub mod chat_completions;
 pub mod embeddings;
+pub mod files;
 mod schema;
 mod utils;
 
 pub use utils::OpenAiApiKeyError;
+
+/// Emitted by the OpenAI API when an error occurs.
+#[derive(Debug, serde::Deserialize)]
+pub struct OpenAiError {
+    /// The type of the error
+    pub r#type: String,
+    /// The error code.
+    #[serde(default)]
+    pub code: Option<String>,
+    /// The error message.
+    pub message: String,
+    /// The error parameter.
+    #[serde(default)]
+    pub param: Option<String>,
+}
+
+impl std::error::Error for OpenAiError {}
+
+impl std::fmt::Display for OpenAiError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}: {}", self.r#type, self.message)?;
+        if let Some(code) = &self.code {
+            write!(f, " (code: {})", code)?;
+        }
+        if let Some(param) = &self.param {
+            write!(f, " (param: {})", param)?;
+        }
+        Ok(())
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -57,9 +89,10 @@ mod tests {
 
     use std::sync::LazyLock;
     static CLIENT: LazyLock<ChatClient> = LazyLock::new(|| {
-        let my_api = "https://g7edusstdonmn3vxdh3qdypkrq0wzttx.lambda-url.us-east-1.on.aws/v1/chat/completions".to_string();
+        let my_api =
+            "https://g7edusstdonmn3vxdh3qdypkrq0wzttx.lambda-url.us-east-1.on.aws/v1/".to_string();
         ChatClient {
-            url: my_api,
+            base_url: url::Url::parse(&my_api).unwrap(),
             ..ChatClient::from_env("gpt-4o").unwrap()
         }
     });
