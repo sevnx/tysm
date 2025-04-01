@@ -27,7 +27,10 @@ The **Typed Chat Completions** feature is the most interesting part, so most of 
   - [Usage](#usage)
   - [Setup](#setup)
     - [Automatic Caching](#automatic-caching)
-    - [Custom API endpoints](#custom-api-endpoints)
+    - [Persistent Cache](#persistent-cache)
+    - [Custom API URL](#custom-api-url)
+      - ["I want to use Anthropic!"](#i-want-to-use-anthropic)
+      - ["I want to use Gemini!"](#i-want-to-use-gemini)
   - [Feature flags](#feature-flags)
   - [License](#license)
   - [Backstory](#backstory)
@@ -93,16 +96,15 @@ Each one has a corresponding batch equivalent (`batch_chat`, `batch_chat_with_sy
 
 ### Automatic Caching
 
-I'm a big fan of memoization. By default, the last 1024 responses will be stored inside the `Client`. For this reason it can be useful to make a client just once using LazyLock (which is part of the standard library since 1.80).
+I'm a big fan of memoization. By default, the last 1024 responses will be stored inside the `ChatClient`. For this reason it can be useful to make a client just once using LazyLock (which is part of the standard library since 1.80).
 
 ```rust
 use std::sync::LazyLock;
 use tysm::chat_completions::ChatClient;
 
-// Create a lazily-initialized `CLIENT` variable to avoid recreating a `ChatClient` every time we want to hit the API.
 static CLIENT: LazyLock<ChatClient> = LazyLock::new(|| ChatClient::from_env("gpt-4o").unwrap());
 
-fn see() {
+fn main() {
     #[derive(tysm::Deserialize, tysm::JsonSchema)]
     struct Name {
         first: String,
@@ -116,19 +118,72 @@ fn see() {
 }
 ```
 
-### Custom API endpoints
+### Persistent Cache
 
-Sometimes people want to use a different completions API. For example, I maintain a wrapper around OpenAI's API that adds a global cache. To switch endpoints, just do this:
+You can also save the cache to disk:
 
 ```rust
-let my_api = "https://g7edusstdonmn3vxdh3qdypkrq0wzttx.lambda-url.us-east-1.on.aws/v1/chat/completions".to_string();
-let client = ChatClient {
-    url: my_api,
-    ..ChatClient::from_env("gpt-4o").unwrap()
-};
+use std::sync::LazyLock;
+use tysm::chat_completions::ChatClient;
+
+fn main() {
+    let client = ChatClient::from_env("gpt-4o")
+        .unwrap()
+        .with_cache_directory("./cache");
+
+    #[derive(tysm::Deserialize, tysm::JsonSchema)]
+    struct Name {
+        first: String,
+        last: String,
+    }
+
+    let _name: Name = CLIENT.chat("Who was the first US president?").await.unwrap();
+    // The response will be written to a file in ./cache
+    // Subsequent calls with this exact request will use the cached value instead of hitting the API. 
+}
+```
+
+### Custom API URL
+
+Sometimes people want to use a different completions API. For example, I maintain a wrapper around OpenAI's API that adds a global cache. To switch the URL, just do this:
+
+```rust
+let my_api = "https://g7edusstdonmn3vxdh3qdypkrq0wzttx.lambda-url.us-east-1.on.aws/v1/";
+let client = Client::from_env("gpt-4o").with_url(my_api);
 ```
 
 By the way, feel free to use this endpoint if you want, but I don't promise to maintain it forever.
+
+#### "I want to use Anthropic!"
+
+Anthropic has some limited [OpenAI compatibility](https://docs.anthropic.com/en/api/openai-sdk). But at the time of this writing, they ignore the `response_format` parameter. This means the structured outputs stuff is not going to work. However, you can still use the `ChatClient::chat_with_messages_raw` function just fine:
+
+```rust
+use tysm::chat_completions::{ChatClient, ChatMessage, ResponseFormat};
+let api_key = std::env::var("ANTHROPIC_API_KEY").unwrap();
+let client = ChatClient::new(api_key, "claude-3-7-sonnet-20250219").with_url("https://api.anthropic.com/v1/");
+let response = client
+  .chat_with_messages_raw(
+      vec![
+          ChatMessage::system("System prompt goes here"),
+          ChatMessage::user("User message goes here"),
+      ],
+      ResponseFormat::Text, // ignored
+  )
+  .await?;
+```
+
+The Batch API will also not work against Anthropic's API.
+
+#### "I want to use Gemini!"
+
+Gemini luckily does support structured outputs. So you can just use your Gemini API key and set the URL to use the OpenAI compatibility layer.
+
+```rust
+use tysm::chat_completions::ChatClient;
+let api_key = std::env::var("GEMINI_API_KEY").unwrap();
+let client = ChatClient::new(api_key, "gemini-2.0-flash").with_url("https://generativelanguage.googleapis.com/v1beta/openai/");
+```
 
 ## Feature flags
 

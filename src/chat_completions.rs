@@ -4,6 +4,7 @@
 //! It also provides a batch API for processing large numbers of requests asynchronously.
 
 use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 use std::sync::RwLock;
 
 use lru::LruCache;
@@ -11,6 +12,7 @@ use reqwest::Client;
 use schemars::{schema_for, transform::Transform, JsonSchema, Schema};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use thiserror::Error;
+use xxhash_rust::const_xxh3::xxh3_64 as const_xxh3;
 
 use crate::batch::{BatchResponseItem, BatchStatus};
 use crate::schema::OpenAiTransform;
@@ -43,8 +45,10 @@ pub struct ChatClient {
     pub model: String,
     /// A cache of the few responses. Stores the last 1024 responses by default.
     pub lru: RwLock<LruCache<String, String>>,
-    /// This client's token consumption (as reported by the API).
+    /// This client's token consumption (as reported by the API). Batch requests will not affect `usage`.
     pub usage: RwLock<ChatUsage>,
+    /// The directory in which to cache responses to requests
+    pub cache_directory: Option<PathBuf>,
 }
 
 /// The role of a message.
@@ -156,6 +160,13 @@ pub struct ChatRequest {
     pub messages: Vec<ChatMessage>,
     /// The response format to use for the ChatGPT API.
     pub response_format: ResponseFormat,
+}
+
+impl ChatRequest {
+    fn cache_key(&self) -> String {
+        let id = const_xxh3(serde_json::to_string(&self).unwrap().as_bytes());
+        format!("tysm-v1-chat_request-{}.zstd", id)
+    }
 }
 
 /// An object specifying the format that the model must output.
@@ -361,6 +372,7 @@ impl std::ops::Add for CompletionTokenDetails {
 
 /// Errors that can occur when interacting with the ChatGPT API.
 #[derive(Error, Debug)]
+#[non_exhaustive]
 pub enum ChatError {
     /// An error occurred when sending the request to the API.
     #[error("Request error: {0}")]
@@ -390,6 +402,10 @@ pub enum ChatError {
     #[error("API returned a response that was not a valid JSON object: {0} \nresponse: {1}")]
     JsonDoesntMatchSchema(serde_json::Error, String),
 
+    /// IO error (usually occurs when reading from the cache).
+    #[error("IO error")]
+    IoError(#[from] std::io::Error),
+
     /// The API did not return any choices.
     #[error("No choices returned from API")]
     NoChoices,
@@ -397,6 +413,7 @@ pub enum ChatError {
 
 /// Errors that can occur when sending many chat requests via the batch API.
 #[derive(Error, Debug)]
+#[non_exhaustive]
 pub enum BatchChatError {
     /// An error occurred when uploading the file to the API.
     #[error("Error uploading file")]
@@ -470,7 +487,52 @@ impl ChatClient {
             model: model.into(),
             lru: RwLock::new(LruCache::new(NonZeroUsize::new(1024).unwrap())),
             usage: RwLock::new(ChatUsage::default()),
+            cache_directory: None,
         }
+    }
+
+    /// Set the cache directory for the client.
+    ///
+    /// The cache directory will be used to persistently cache all responses to requests.
+    pub fn with_cache_directory(mut self, cache_directory: impl Into<PathBuf>) -> Self {
+        let cache_directory = cache_directory.into();
+
+        if cache_directory.exists() && cache_directory.is_file() {
+            panic!("Cache directory is a file");
+        }
+
+        self.cache_directory = Some(cache_directory);
+        self
+    }
+
+    /// Sets the base URL
+    ///
+    /// ```
+    /// # use tysm::chat_completions::ChatClient;
+    /// let api_key = "YOUR ANTHROPIC API KEY HERE";
+    /// let client = ChatClient::new(api_key, "claude-3-7-sonnet-20250219").with_url("https://api.anthropic.com/v1/");
+    /// ```
+    ///
+    /// or...
+    ///
+    /// ```
+    /// # use tysm::chat_completions::ChatClient;
+    /// let api_key = "YOUR GEMINI API KEY HERE";
+    /// let client = ChatClient::new(api_key, "gemini-2.0-flash").with_url("https://generativelanguage.googleapis.com/v1beta/openai/");
+    /// ```
+    ///
+    /// Panics if the argument is not a valid URL.
+    pub fn with_url(mut self, url: impl Into<String>) -> Self {
+        let url = url.into();
+        let url = if url.ends_with('/') {
+            url
+        } else {
+            format!("{}/", url)
+        };
+
+        let url = url::Url::parse(&url).unwrap();
+        self.base_url = url;
+        self
     }
 
     fn chat_completions_url(&self) -> url::Url {
@@ -784,7 +846,6 @@ impl ChatClient {
         prompts: Vec<(Vec<ChatMessage>, ResponseFormat)>,
     ) -> Result<Vec<String>, BatchChatError> {
         use crate::batch::{BatchClient, BatchRequestItem};
-        use xxhash_rust::const_xxh3::xxh3_64 as const_xxh3;
 
         let batch_client = BatchClient::from(self);
 
@@ -927,11 +988,31 @@ impl ChatClient {
     }
 
     async fn chat_cached(&self, chat_request: &ChatRequest) -> Option<String> {
+        let chat_request_cache_key = chat_request.cache_key();
         let chat_request = serde_json::to_string(chat_request).ok()?;
 
-        let mut lru = self.lru.write().ok()?;
+        // First, check the lru (which we just peek so it's not even really used as a LRU)
+        {
+            let lru = self.lru.read().ok()?;
+            let response = lru.peek(&chat_request);
+            if let Some(response) = response {
+                return Some(response.clone());
+            }
+        }
 
-        lru.get(&chat_request).cloned()
+        // Then, check the cache directory
+        let cache_directory = self.cache_directory.as_ref()?;
+        let cache_path = cache_directory.join(chat_request_cache_key);
+
+        // Read the compressed data from disk
+        let compressed_data = tokio::fs::read(&cache_path).await.ok()?;
+
+        // Decompress the data
+        let decompressed_data = zstd::decode_all(compressed_data.as_slice()).ok()?;
+
+        // Convert bytes back to string
+        let response = String::from_utf8(decompressed_data).ok()?;
+        Some(response)
     }
 
     async fn chat_uncached(&self, chat_request: &ChatRequest) -> Result<String, ChatError> {
@@ -947,14 +1028,30 @@ impl ChatClient {
             .text()
             .await?;
 
-        let chat_request = serde_json::to_string(chat_request)
-            .map_err(|e| ChatError::JsonSerializeError(e, chat_request.clone()))?;
+        // simple heuristic to avoid caching errors
+        if !response.starts_with("{\"error\":") {
+            let chat_request_cache_key = chat_request.cache_key();
+            let chat_request = serde_json::to_string(chat_request)
+                .map_err(|e| ChatError::JsonSerializeError(e, chat_request.clone()))?;
 
-        self.lru
-            .write()
-            .ok()
-            .unwrap()
-            .put(chat_request, response.clone());
+            self.lru
+                .write()
+                .ok()
+                .unwrap()
+                .put(chat_request, response.clone());
+
+            if let Some(cache_directory) = &self.cache_directory {
+                if !cache_directory.exists() {
+                    tokio::fs::create_dir_all(&cache_directory).await?;
+                }
+
+                let cache_path = cache_directory.join(chat_request_cache_key);
+
+                // Compress the response with zstd before writing to disk
+                let compressed = zstd::encode_all(response.as_bytes(), 3)?;
+                tokio::fs::write(&cache_path, compressed).await?;
+            }
+        }
 
         Ok(response)
     }
@@ -964,6 +1061,17 @@ impl ChatClient {
     /// Does not double-count tokens used in cached responses.
     pub fn usage(&self) -> ChatUsage {
         *self.usage.read().unwrap()
+    }
+
+    /// Attempts to compute the cost in dollars of the usage of this client.
+    ///
+    /// This is provided on a best-effort basis. The prices are hardcoded into
+    /// the library (as OpenAI doesn't provide an API to get API pricing info),
+    /// and may be out of date or unavailable for the model you're using.
+    /// If you notice the prices being out of date, [please leave an issue](https://github.com/not-pizza/tysm)!
+    pub fn cost(&self) -> Option<f64> {
+        let usage = self.usage();
+        crate::model_prices::cost(&self.model, usage)
     }
 }
 
