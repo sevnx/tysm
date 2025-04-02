@@ -18,6 +18,7 @@ use crate::batch::{BatchResponseItem, BatchStatus};
 use crate::schema::OpenAiTransform;
 use crate::utils::{api_key, OpenAiApiKeyError};
 use crate::OpenAiError;
+use log::{debug, info};
 
 /// To use this library, you need to create a [`ChatClient`]. This contains various information needed to interact with the ChatGPT API,
 /// such as the API key, the model to use, and the URL of the API.
@@ -70,6 +71,7 @@ pub enum Role {
 pub struct ChatMessage {
     /// The role of user sending the message.
     pub role: Role,
+
     /// The content of the message. It is a vector of [`ChatMessageContent`]s,
     /// which allows you to include images in the message.
     pub content: Vec<ChatMessageContent>,
@@ -246,7 +248,26 @@ pub struct SchemaFormat {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub(crate) struct ChatMessageResponse {
     pub role: Role,
-    pub content: String,
+    pub content: Option<String>,
+
+    /// When using Structured Outputs with user-generated input, OpenAI models may occasionally refuse to fulfill the request for safety reasons. Since a refusal does not necessarily follow the schema supplied in response_format, the API response will include a new field called refusal to indicate that the model refused to fulfill the request.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub refusal: Option<String>,
+}
+
+impl ChatMessageResponse {
+    fn content(self) -> Result<String, String> {
+        if let Some(refusal) = self.refusal {
+            if !refusal.trim().is_empty() {
+                return Err(refusal);
+            }
+        }
+
+        // if there's no refusal, we assume that there is content
+        let content = self.content.unwrap();
+
+        Ok(content)
+    }
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -383,7 +404,7 @@ pub enum ChatError {
     JsonSerializeError(serde_json::Error, ChatRequest),
 
     /// The API returned a response could not be parsed into the structure expected of OpenAI responses
-    #[error("API returned a response could not be parsed into the structure expected of OpenAI responses: {response} \request: {request}")]
+    #[error("API returned a response could not be parsed into the structure expected of OpenAI responses: `{response}` (request: `{request}`)")]
     ApiParseError {
         /// The response from the API.
         response: String,
@@ -395,12 +416,12 @@ pub enum ChatError {
     },
 
     /// An error occurred when deserializing the response from the API.
-    #[error("API returned an error response for request: {1}")]
+    #[error("API returned an error response for request {1}")]
     ApiError(#[source] OpenAiError, String),
 
     /// The API returned a response that was not a valid JSON object.
-    #[error("API returned a response that was not a valid JSON object: {0} \nresponse: {1}")]
-    JsonDoesntMatchSchema(serde_json::Error, String),
+    #[error("There was a problem with the API response")]
+    ResponseNotConformantToSchema(#[from] IndividualChatError),
 
     /// IO error (usually occurs when reading from the cache).
     #[error("IO error")]
@@ -447,12 +468,6 @@ pub enum BatchChatError {
     #[error("The result for Custom ID `{0}` has no choices")]
     BatchNoChoices(String),
 
-    /// The API returned a response that did not conform to the given schema.
-    #[error(
-        "API returned a response that did not conform to the given schema: {0} \nresponse: {1}"
-    )]
-    JsonDoesntMatchSchema(serde_json::Error, String),
-
     /// The API returned a response could not be parsed into the structure expected of OpenAI responses
     #[error("API returned a response could not be parsed into the structure expected of OpenAI responses: {response}")]
     ApiParseError {
@@ -466,6 +481,21 @@ pub enum BatchChatError {
     /// An error occurred when listing the batches.
     #[error("Error listing batches")]
     ListBatchesError(#[from] crate::batch::ListBatchesError),
+}
+
+/// Errors that can occur when sending many chat requests via the batch API.
+#[derive(Error, Debug)]
+#[non_exhaustive]
+pub enum IndividualChatError {
+    /// The API returned a response that did not conform to the given schema.
+    #[error(
+        "API returned a response that did not conform to the given schema: `{0}` (response: `{1}`)"
+    )]
+    ResponseNotConformantToSchema(serde_json::Error, String),
+
+    /// The API refused to fulfill the request.
+    #[error("The API refused to fulfill the request: `{0}`")]
+    Refusal(String),
 }
 
 impl ChatClient {
@@ -522,7 +552,7 @@ impl ChatClient {
     /// ```
     ///
     /// Panics if the argument is not a valid URL.
-    pub fn with_url(mut self, url: impl Into<String>) -> Self {
+    pub fn with_url(self, url: impl Into<String>) -> Self {
         let url = url.into();
         let url = if url.ends_with('/') {
             url
@@ -531,8 +561,10 @@ impl ChatClient {
         };
 
         let url = url::Url::parse(&url).unwrap();
-        self.base_url = url;
-        self
+        Self {
+            base_url: url,
+            ..self
+        }
     }
 
     fn chat_completions_url(&self) -> url::Url {
@@ -631,16 +663,8 @@ impl ChatClient {
         let system_prompt = system_prompt.into();
 
         let messages = vec![
-            ChatMessage {
-                role: Role::System,
-                content: vec![ChatMessageContent::Text {
-                    text: system_prompt,
-                }],
-            },
-            ChatMessage {
-                role: Role::User,
-                content: vec![ChatMessageContent::Text { text: prompt }],
-            },
+            ChatMessage::system(system_prompt),
+            ChatMessage::user(prompt),
         ];
         self.chat_with_messages::<T>(messages).await
     }
@@ -699,8 +723,9 @@ impl ChatClient {
             .chat_with_messages_raw(messages, response_format)
             .await?;
 
-        let chat_response: T = serde_json::from_str(&chat_response)
-            .map_err(|e| ChatError::JsonDoesntMatchSchema(e, chat_response.clone()))?;
+        let chat_response: T = Self::decode_json(&chat_response).map_err(|e| {
+            IndividualChatError::ResponseNotConformantToSchema(e, chat_response.trim().to_string())
+        })?;
 
         Ok(chat_response)
     }
@@ -720,20 +745,42 @@ impl ChatClient {
         let chat_request_str = serde_json::to_string(&chat_request).unwrap();
 
         let chat_response = if let Some(cached_response) = self.chat_cached(&chat_request).await {
+            debug!("Using cached response: {cached_response}");
             let chat_response: ChatResponseOrError = serde_json::from_str(&cached_response)
-                .map_err(|e| ChatError::ApiParseError {
-                    response: cached_response.clone(),
-                    error: e,
-                    request: chat_request_str.clone(),
+                .map_err(|e| {
+                    let chat_request_str = if chat_request_str.len() > 100 {
+                        chat_request_str
+                            .chars()
+                            .take(100)
+                            .chain("...".chars())
+                            .collect()
+                    } else {
+                        chat_request_str.clone()
+                    };
+                    ChatError::ApiParseError {
+                        response: cached_response.clone(),
+                        error: e,
+                        request: chat_request_str,
+                    }
                 })?;
             match chat_response {
                 ChatResponseOrError::Response(response) => response,
                 ChatResponseOrError::Error(error) => {
+                    let chat_request_str = if chat_request_str.len() > 100 {
+                        chat_request_str
+                            .chars()
+                            .take(100)
+                            .chain("...".chars())
+                            .collect()
+                    } else {
+                        chat_request_str.clone()
+                    };
                     return Err(ChatError::ApiError(error, chat_request_str));
                 }
             }
         } else {
             let chat_response = self.chat_uncached(&chat_request).await?;
+            debug!("Got response from API: {chat_response}");
             let chat_response: ChatResponseOrError =
                 serde_json::from_str(&chat_response).map_err(|e| ChatError::ApiParseError {
                     response: chat_response.clone(),
@@ -752,13 +799,14 @@ impl ChatClient {
             }
             chat_response
         };
-        let chat_response = chat_response
+        let message = chat_response
             .choices
             .first()
             .ok_or(ChatError::NoChoices)?
             .message
-            .content
             .clone();
+
+        let chat_response = message.content().map_err(IndividualChatError::Refusal)?;
 
         Ok(chat_response)
     }
@@ -769,7 +817,7 @@ impl ChatClient {
     pub async fn batch_chat<T: DeserializeOwned + JsonSchema>(
         &self,
         prompts: Vec<impl Into<String>>,
-    ) -> Result<Vec<T>, BatchChatError> {
+    ) -> Result<Vec<Result<T, IndividualChatError>>, BatchChatError> {
         self.batch_chat_with_system_prompt("", prompts).await
     }
 
@@ -781,7 +829,7 @@ impl ChatClient {
         &self,
         system_prompt: impl Into<String> + Clone,
         prompts: Vec<impl Into<String>>,
-    ) -> Result<Vec<T>, BatchChatError> {
+    ) -> Result<Vec<Result<T, IndividualChatError>>, BatchChatError> {
         let prompts = prompts
             .into_iter()
             .map(|prompt| {
@@ -789,16 +837,8 @@ impl ChatClient {
                 let system_prompt = system_prompt.clone().into();
 
                 vec![
-                    ChatMessage {
-                        role: Role::System,
-                        content: vec![ChatMessageContent::Text {
-                            text: system_prompt,
-                        }],
-                    },
-                    ChatMessage {
-                        role: Role::User,
-                        content: vec![ChatMessageContent::Text { text: prompt }],
-                    },
+                    ChatMessage::system(system_prompt),
+                    ChatMessage::user(prompt),
                 ]
             })
             .collect();
@@ -813,7 +853,7 @@ impl ChatClient {
     pub async fn batch_chat_with_messages<T: DeserializeOwned + JsonSchema>(
         &self,
         messages: Vec<Vec<ChatMessage>>,
-    ) -> Result<Vec<T>, BatchChatError> {
+    ) -> Result<Vec<Result<T, IndividualChatError>>, BatchChatError> {
         let json_schema = JsonSchemaFormat::new::<T>();
 
         let response_format = ResponseFormat::JsonSchema { json_schema };
@@ -827,13 +867,18 @@ impl ChatClient {
             )
             .await?;
 
-        let chat_responses: Vec<T> = chat_responses
+        let chat_responses: Vec<Result<T, _>> = chat_responses
             .into_iter()
             .map(|chat_response| {
-                serde_json::from_str(&chat_response)
-                    .map_err(|e| BatchChatError::JsonDoesntMatchSchema(e, chat_response.clone()))
+                let chat_response = chat_response?;
+                Self::decode_json(&chat_response).map_err(|e| {
+                    IndividualChatError::ResponseNotConformantToSchema(
+                        e,
+                        chat_response.trim().to_string(),
+                    )
+                })
             })
-            .collect::<Result<Vec<_>, BatchChatError>>()?;
+            .collect::<Vec<Result<_, IndividualChatError>>>();
 
         Ok(chat_responses)
     }
@@ -844,8 +889,10 @@ impl ChatClient {
     pub async fn batch_chat_with_messages_raw(
         &self,
         prompts: Vec<(Vec<ChatMessage>, ResponseFormat)>,
-    ) -> Result<Vec<String>, BatchChatError> {
+    ) -> Result<Vec<Result<String, IndividualChatError>>, BatchChatError> {
         use crate::batch::{BatchClient, BatchRequestItem};
+
+        info!("Starting batch chat with {} prompts", prompts.len());
 
         let batch_client = BatchClient::from(self);
 
@@ -907,8 +954,10 @@ impl ChatClient {
 
         // If the batch already exists, use it. Otherwise, create a new one.
         let batch = if let Some(batch) = batch {
+            info!("Reusing existing batch");
             batch
         } else {
+            info!("No batch with matching hash found found, creating a new one");
             // Create the batch content
             let content = batch_client.create_batch_content(&requests);
 
@@ -980,7 +1029,13 @@ impl ChatClient {
                             .first()
                             .ok_or(BatchChatError::BatchNoChoices(custom_id))
                     })
-                    .map(|choice| choice.message.content.to_string())
+                    .map(|choice| {
+                        choice
+                            .message
+                            .clone()
+                            .content()
+                            .map_err(IndividualChatError::Refusal)
+                    })
             })
             .collect::<Result<Vec<_>, _>>()?;
 
@@ -1012,6 +1067,7 @@ impl ChatClient {
 
         // Convert bytes back to string
         let response = String::from_utf8(decompressed_data).ok()?;
+
         Some(response)
     }
 
@@ -1029,7 +1085,7 @@ impl ChatClient {
             .await?;
 
         // simple heuristic to avoid caching errors
-        if !response.starts_with("{\"error\":") {
+        if !response.starts_with("{\"error\":") && !response.starts_with("error code") {
             let chat_request_cache_key = chat_request.cache_key();
             let chat_request = serde_json::to_string(chat_request)
                 .map_err(|e| ChatError::JsonSerializeError(e, chat_request.clone()))?;
@@ -1054,6 +1110,26 @@ impl ChatClient {
         }
 
         Ok(response)
+    }
+
+    fn decode_json<T: DeserializeOwned>(json: &str) -> Result<T, serde_json::Error> {
+        match serde_json::from_str(json) {
+            Ok(chat_response) => Ok(chat_response),
+            Err(e) => {
+                // try decoding each line separately
+                {
+                    let lines = json.lines();
+                    for line in lines {
+                        if let Ok(chat_response) = serde_json::from_str(line) {
+                            return Ok(chat_response);
+                        }
+                    }
+                }
+
+                // give up
+                Err(e)
+            }
+        }
     }
 
     /// Returns how many tokens have been used so far.
