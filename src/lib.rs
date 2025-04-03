@@ -92,10 +92,7 @@ mod tests {
     static CLIENT: LazyLock<ChatClient> = LazyLock::new(|| {
         let my_api =
             "https://g7edusstdonmn3vxdh3qdypkrq0wzttx.lambda-url.us-east-1.on.aws/v1/".to_string();
-        ChatClient {
-            base_url: url::Url::parse(&my_api).unwrap(),
-            ..ChatClient::from_env("gpt-4o").unwrap()
-        }
+        ChatClient::from_env("gpt-4o").unwrap().with_url(my_api)
     });
 
     #[derive(serde::Deserialize, schemars::JsonSchema, Debug)]
@@ -123,7 +120,9 @@ mod tests {
     async fn refusals() {
         #[derive(serde::Deserialize, schemars::JsonSchema, Debug)]
         struct Instructions {
+            #[expect(unused)]
             title: String,
+            #[expect(unused)]
             steps: Vec<String>,
         }
 
