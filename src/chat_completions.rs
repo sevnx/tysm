@@ -5,7 +5,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
-use std::sync::RwLock;
+use std::sync::{Arc, RwLock};
 
 use lru::LruCache;
 use reqwest::Client;
@@ -35,6 +35,7 @@ use log::{debug, info};
 /// // (This will also look for an `.env` file in the current directory.)
 /// let client = ChatClient::from_env("gpt-4o").unwrap();
 /// ```
+#[derive(Debug, Clone)]
 pub struct ChatClient {
     /// The API key to use for the ChatGPT API.
     pub api_key: String,
@@ -45,9 +46,9 @@ pub struct ChatClient {
     /// The model to use for the ChatGPT API.
     pub model: String,
     /// A cache of the few responses. Stores the last 1024 responses by default.
-    pub lru: RwLock<LruCache<String, String>>,
+    pub lru: Arc<RwLock<LruCache<String, String>>>,
     /// This client's token consumption (as reported by the API). Batch requests will not affect `usage`.
-    pub usage: RwLock<ChatUsage>,
+    pub usage: Arc<RwLock<ChatUsage>>,
     /// The directory in which to cache responses to requests
     pub cache_directory: Option<PathBuf>,
 }
@@ -516,8 +517,8 @@ impl ChatClient {
             base_url: url::Url::parse("https://api.openai.com/v1/").unwrap(),
             chat_completions_path: "chat/completions".to_string(),
             model: model.into(),
-            lru: RwLock::new(LruCache::new(NonZeroUsize::new(1024).unwrap())),
-            usage: RwLock::new(ChatUsage::default()),
+            lru: Arc::new(RwLock::new(LruCache::new(NonZeroUsize::new(1024).unwrap()))),
+            usage: Arc::new(RwLock::new(ChatUsage::default())),
             cache_directory: None,
         }
     }
